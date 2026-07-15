@@ -99,9 +99,9 @@ def align_coco_annotations(val_json_path, pred_json_path, output_val_path, outpu
 if __name__ == "__main__":
     # 修改为你的实际文件路径
     original_val_json = "D:/DeepLearning/Challenger/data/dataset_coco/val.json"
-    yolo_pred_json = "D:/DeepLearning/Challenger/code/Yolov8/ultralytics-main/runs/detect/val_me200/predictions.json"
+    yolo_pred_json = "D:/DeepLearning/Challenger/code/ultralytics-main/runs/detect/val_me200/predictions.json"
     
-    new_val_json = "D:/DeepLearning/Challenger/code/Yolov8/ultralytics-main/runs/detect/val_me200/new_val.json"
-    new_pred_json = "D:/DeepLearning/Challenger/code/Yolov8/ultralytics-main/runs/detect/val_me200/new_predictions.json"
+    new_val_json = "D:/DeepLearning/Challenger/code/ultralytics-main/runs/detect/val_me200/new_val.json"
+    new_pred_json = "D:/DeepLearning/Challenger/code/ultralytics-main/runs/detect/val_me200/new_predictions.json"
     
     align_coco_annotations(original_val_json, yolo_pred_json, new_val_json, new_pred_json)

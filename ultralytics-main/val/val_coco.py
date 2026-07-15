@@ -28,8 +28,8 @@ def evaluate_coco(pred_json, anno_json):
 
 def main():
     # 确保文件路径存在
-    pred_json = Path("D:/DeepLearning/Challenger/code/Yolov8/ultralytics-main/runs/detect/val_me200/new_predictions.json")
-    anno_json = Path("D:/DeepLearning/Challenger/code/Yolov8/ultralytics-main/runs/detect/val_me200/new_val.json")
+    pred_json = Path("D:/DeepLearning/Challenger/code/ultralytics-main/runs/detect/val_me200/new_predictions.json")
+    anno_json = Path("D:/DeepLearning/Challenger/code/ultralytics-main/runs/detect/val_me200/new_val.json")
     
     # 评估并打印结果
     stats = evaluate_coco(pred_json, anno_json)
