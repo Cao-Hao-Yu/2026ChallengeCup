@@ -9,8 +9,8 @@ import matplotlib.patches as patches
     AI代码
 """
 
-TARGET_CLASS_ID = 0
-NUM_SAMPLES = 9
+TARGET_CLASS_ID = 24
+NUM_SAMPLES = 4
 
 # 配置路径
 img_dir = r"D:\DeepLearning\Challenger\data\dataset_yolo\images\train"
@@ -69,7 +69,7 @@ else:
     print(f"已找到 {len(matched_files)} 张图片，正在生成可视化...")
 
 # 创建画布
-fig, axes = plt.subplots(3, 3, figsize=(15, 15))
+fig, axes = plt.subplots(2, 2, figsize=(15, 15))
 axes = axes.flatten()
 
 for i, (img_path, lbl_path) in enumerate(matched_files):
@@ -116,7 +116,7 @@ for i, (img_path, lbl_path) in enumerate(matched_files):
                             bbox=dict(facecolor='red', alpha=0.8, edgecolor='none', pad=1))
 
 # 隐藏多余的子图
-for j in range(len(matched_files), 9):
+for j in range(len(matched_files), 4):
     axes[j].axis('off')
 
 plt.tight_layout()
