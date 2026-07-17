@@ -9,7 +9,7 @@ from pycocotools.cocoeval import COCOeval
 
 
 def evaluate_coco(pred_json, anno_json):
-    print(f"\n正在评估 COCO 指标，使用 {pred_json} 和 {anno_json}...")
+    print(f"正在评估 COCO 指标，使用 {pred_json} 和 {anno_json}...")
     
     # 检查文件是否存在
     for x in [pred_json, anno_json]:
@@ -28,8 +28,8 @@ def evaluate_coco(pred_json, anno_json):
 
 def main():
     # 确保文件路径存在
-    pred_json = Path("D:/DeepLearning/Challenger/code/ultralytics-main/runs/detect/val_me200/new_predictions.json")
-    anno_json = Path("D:/DeepLearning/Challenger/code/ultralytics-main/runs/detect/val_me200/new_val.json")
+    pred_json = Path("D:/DeepLearning/Challenger/code/ultralytics-main/runs/temp/new_predictions.json")
+    anno_json = Path("D:/DeepLearning/Challenger/code/ultralytics-main/runs/temp/new_val.json")
     
     # 评估并打印结果
     stats = evaluate_coco(pred_json, anno_json)

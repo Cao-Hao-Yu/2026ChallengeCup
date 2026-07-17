@@ -1,7 +1,7 @@
 import json
 from collections import defaultdict
 
-def align_coco_annotations(val_json_path, pred_json_path, output_val_path, output_pred_path=None):
+def align_coco_annotations(val_json_path, pred_json_path, output_val_path, output_pred_path=None, flag=True):
     with open(val_json_path, 'r', encoding='utf-8') as f:
         coco_gt = json.load(f)
         
@@ -68,7 +68,10 @@ def align_coco_annotations(val_json_path, pred_json_path, output_val_path, outpu
         if new_img_id is not None:
             # 将 YOLO 预测结果中的 category_id 减去 1，使其从 0 开始
             original_cat_id = pred["category_id"]
-            new_cat_id = original_cat_id - 1 if original_cat_id > 0 else 0
+            if flag:
+                new_cat_id = original_cat_id - 1 if original_cat_id > 0 else 0
+            else:
+                new_cat_id = original_cat_id if original_cat_id > 0 else 0
 
             new_pred = {
                 "image_id": new_img_id,  
@@ -98,10 +101,10 @@ def align_coco_annotations(val_json_path, pred_json_path, output_val_path, outpu
 # ================= 使用方法 =================
 if __name__ == "__main__":
     # 修改为你的实际文件路径
-    original_val_json = "D:/DeepLearning/Challenger/data/dataset_coco/val.json"
-    yolo_pred_json = "D:/DeepLearning/Challenger/code/ultralytics-main/runs/detect/val_me200/predictions.json"
+    original_val_json = "D:/DeepLearning/Challenger/data/dataset_10k/val.json"
+    yolo_pred_json = "D:/DeepLearning/Challenger/code/ultralytics-main/runs/temp/predictions.json"
     
-    new_val_json = "D:/DeepLearning/Challenger/code/ultralytics-main/runs/detect/val_me200/new_val.json"
-    new_pred_json = "D:/DeepLearning/Challenger/code/ultralytics-main/runs/detect/val_me200/new_predictions.json"
+    new_val_json = "D:/DeepLearning/Challenger/code/ultralytics-main/runs/temp/new_val.json"
+    new_pred_json = "D:/DeepLearning/Challenger/code/ultralytics-main/runs/temp/new_predictions.json"
     
-    align_coco_annotations(original_val_json, yolo_pred_json, new_val_json, new_pred_json)
+    align_coco_annotations(original_val_json, yolo_pred_json, new_val_json, new_pred_json, False)

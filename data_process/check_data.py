@@ -14,8 +14,8 @@ plt.rcParams['font.sans-serif'] = ['SimHei']  # Windows自带黑体
 plt.rcParams['axes.unicode_minus'] = False
 
 # 配置路径
-img_dir = r"D:\DeepLearning\Challenger\data\test"
-lbl_dir = r"D:\DeepLearning\Challenger\data\test"
+img_dir = r"D:/DeepLearning/Challenger/data/dataset_10k/images/val"
+lbl_dir = r"D:/DeepLearning/Challenger/data/dataset_10k/labels/val"
 
 # 类别名称字典
 class_names = {
@@ -38,10 +38,10 @@ def get_color(idx):
 all_imgs = [f for f in os.listdir(img_dir) if f.lower().endswith('.jpg')]
 
 # 2. 随机抽取 9 张图片
-sample_imgs = random.sample(all_imgs, min(9, len(all_imgs)))
+sample_imgs = random.sample(all_imgs, min(4, len(all_imgs)))
 
 # 3. 创建画布
-fig, axes = plt.subplots(3, 3, figsize=(15, 15))
+fig, axes = plt.subplots(2, 2, figsize=(15, 15))
 axes = axes.flatten()
 
 for i, img_name in enumerate(sample_imgs):
@@ -91,7 +91,7 @@ for i, img_name in enumerate(sample_imgs):
                             bbox=dict(facecolor=color, alpha=0.8, edgecolor='none', pad=1))
 
 # 如果图片不足9张，隐藏多余的子图
-for j in range(len(sample_imgs), 9):
+for j in range(len(sample_imgs), 4):
     axes[j].axis('off')
 
 plt.tight_layout()

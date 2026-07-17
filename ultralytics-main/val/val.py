@@ -4,10 +4,10 @@ import matplotlib.pyplot as plt
 from ultralytics import YOLO
 
 
-MODEL_PATH = r"D:/DeepLearning/Challenger/code/ultralytics-main/runs/detect/me200/weights/best.pt"
+MODEL_PATH = r"D:/DeepLearning/Challenger/code/ultralytics-main/runs/detect/8me200/weights/best.pt"
 DATA_YAML = r"D:/DeepLearning/Challenger/data/dataset_yolo/dataset.yaml"
 
-CONF_THRES = 0.25
+CONF_THRES = 0.001
 
 
 def evaluate_with_ultralytics():
@@ -36,4 +36,3 @@ def evaluate_with_ultralytics():
 
 if __name__ == "__main__":
     evaluate_with_ultralytics()
-    # D:/DeepLearning/Challenger/code/ultralytics-main/runs/detect/val
