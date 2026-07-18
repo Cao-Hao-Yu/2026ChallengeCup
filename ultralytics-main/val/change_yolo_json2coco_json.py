@@ -90,21 +90,20 @@ def align_coco_annotations(val_json_path, pred_json_path, output_val_path, outpu
     
     with open(output_val_path, 'w', encoding='utf-8') as f:
         json.dump(new_coco_gt, f, ensure_ascii=False, indent=4)
-    print(f"✅ 新的标注文件已保存至: {output_val_path}")
+    print(f"新的标注文件已保存至: {output_val_path}")
 
     if output_pred_path:
         with open(output_pred_path, 'w', encoding='utf-8') as f:
             json.dump(new_preds, f, ensure_ascii=False, indent=4)
-        print(f"✅ 对齐后的预测文件已保存至: {output_pred_path}")
+        print(f"对齐后的预测文件已保存至: {output_pred_path}")
 
 
-# ================= 使用方法 =================
 if __name__ == "__main__":
-    # 修改为你的实际文件路径
     original_val_json = "D:/DeepLearning/Challenger/data/dataset_10k/val.json"
     yolo_pred_json = "D:/DeepLearning/Challenger/code/ultralytics-main/runs/temp/predictions.json"
     
     new_val_json = "D:/DeepLearning/Challenger/code/ultralytics-main/runs/temp/new_val.json"
     new_pred_json = "D:/DeepLearning/Challenger/code/ultralytics-main/runs/temp/new_predictions.json"
     
-    align_coco_annotations(original_val_json, yolo_pred_json, new_val_json, new_pred_json, False)
+    # 有一个手动调整的flag 转换sahi切片推理时需要改成false
+    align_coco_annotations(original_val_json, yolo_pred_json, new_val_json, new_pred_json, True)

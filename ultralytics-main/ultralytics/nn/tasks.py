@@ -10,6 +10,8 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 
+from ultralytics.nn.modules.custom_block import *
+
 from ultralytics.nn.autobackend import check_class_names
 from ultralytics.nn.modules import (
     AIFI,
@@ -1846,6 +1848,9 @@ def parse_model(d, ch, verbose=True):
             SCDown,
             C2fCIB,
             A2C2f,
+            PConv,
+            SPDConv,
+            SPPF_LSKA
         }
     )
     repeat_modules = frozenset(  # modules with 'repeat' arguments
@@ -1957,6 +1962,12 @@ def parse_model(d, ch, verbose=True):
             c2 = args[0]
             c1 = ch[f]
             args = [*args[1:]]
+        elif m is AKConv:
+            c2 = args[0]
+            args = [ch[f], *args]
+        elif m is SCAM:
+            c2 = ch[f]
+            args = [c2]
         else:
             c2 = ch[f]
 

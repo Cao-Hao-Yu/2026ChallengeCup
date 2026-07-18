@@ -28,7 +28,7 @@ def validate_and_export_json(
     all_predictions = []
     
     # 图片后缀名过滤
-    image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff']
+    image_extensions = ['.jpg']
     image_files = [
         f for f in os.listdir(source_dir) 
         if os.path.splitext(f)[1].lower() in image_extensions
@@ -72,7 +72,6 @@ def validate_and_export_json(
             for prediction in result.object_prediction_list:
                 # 获取bbox并转为float
                 bbox = prediction.bbox.to_xywh()
-                # 关键修改：使用 float() 强制转换，解决 float32 序列化报错
                 bbox = [float(round(x, 3)) for x in bbox]
                 
                 # 获取类别和分数，同样转为原生 int 和 float
@@ -109,13 +108,12 @@ def validate_and_export_json(
     
     print("Done!")
 
-# ================= 使用示例 =================
 if __name__ == "__main__":
     # 配置参数
     CONFIG = {
-        "model_path": "D:/DeepLearning/Challenger/code/ultralytics-main/runs/detect/26me200/weights/best.pt",
+        "model_path": "./runs/detect/26me200/weights/best.pt",
         "source_dir": "D:/DeepLearning/Challenger/data/dataset_10k/images/val/",
-        "output_json_path": "D:/DeepLearning/Challenger/code/ultralytics-main/runs/temp/predictions.json",
+        "output_json_path": "./runs/temp/predictions.json",
         "device": "cuda:0",
         "confidence_threshold": 0.25,
         "slice_height": 800,
