@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from ultralytics import YOLO
 from ultralytics.utils import DEFAULT_CFG
 
-MODEL_PATH = r"./runs/detect/AKConv_ne200/weights/best.pt"
+MODEL_PATH = r"./runs/detect/8ne200_spdconv_lskasppf_akconvbottleneck/weights/best.pt"
 DATA_YAML = r"./train/dataset.yaml"
 
 CONF_THRES = 0.001

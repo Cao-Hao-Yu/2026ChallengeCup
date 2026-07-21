@@ -7,12 +7,12 @@ from ultralytics.utils import DEFAULT_CFG
 # os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
 if __name__ == "__main__":
-    DEFAULT_CFG.save_dir = r"./runs/detect/what_is_this"
-    model = YOLO(model=r"./models/unname.yaml")
+    DEFAULT_CFG.save_dir = r"./runs/detect/8ne200_spdconv_lskasppf_scam"
+    model = YOLO(model=r"./models/yolo_test.yaml")
     model.train(
         data=r"./train/dataset.yaml",
-        epochs=300,
+        epochs=200,
         imgsz=640,
-        batch=24,
+        batch=16,
         device=0
     )

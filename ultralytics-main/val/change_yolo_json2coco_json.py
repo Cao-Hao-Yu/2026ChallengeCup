@@ -106,4 +106,4 @@ if __name__ == "__main__":
     new_pred_json = "D:/DeepLearning/Challenger/code/ultralytics-main/runs/temp/new_predictions.json"
     
     # 有一个手动调整的flag 转换sahi切片推理时需要改成false
-    align_coco_annotations(original_val_json, yolo_pred_json, new_val_json, new_pred_json, True)
+    align_coco_annotations(original_val_json, yolo_pred_json, new_val_json, new_pred_json, False)

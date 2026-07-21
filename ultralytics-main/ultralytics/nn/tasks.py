@@ -1850,7 +1850,9 @@ def parse_model(d, ch, verbose=True):
             A2C2f,
             PConv,
             SPDConv,
-            SPPF_LSKA
+            SPPF_LSKA,
+            Bottleneck_AKConv,
+            C2f_AKConv
         }
     )
     repeat_modules = frozenset(  # modules with 'repeat' arguments
@@ -1870,6 +1872,7 @@ def parse_model(d, ch, verbose=True):
             C2fCIB,
             C2PSA,
             A2C2f,
+            C2f_AKConv
         }
     )
     for i, (f, n, m, args) in enumerate(d["backbone"] + d["head"]):  # from, number, module, args

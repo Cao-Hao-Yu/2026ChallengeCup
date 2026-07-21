@@ -1,24 +1,56 @@
-# 标题
+# Challenge Cup
 
-目前该仓库包括两个文件夹分别为YOLOv8以及data_process的代码
+目前该仓库包括两个文件夹分别为ultralytics以及data_process的代码
 
 ## data_process
 
 包括.py文件分别实现
 
-1. 统计数据集各个实例数量
-2. 可视化（特定）图片与标注框
-3. （临时）划分train/val数据集
-4. yolo格式数据转coco格式
+1. check_data
+   
+   临时代码，用于debug
+2. count_cls_data
+   
+   统计每个类别实例数量
+3. make_10k_data
+   
+   实例化10k画布，然后选择图片贴在画布上，图片有缩放，旋转等增强
+4. split_dataset
+   
+   划分数据集，按照每个类别8: 2划分
+5. visualize_img
+   
+   可视化图片及标注框
+6. visualize_spec_img
+   
+   可视化特定类别的图片及标注框
+7. yolo2coco
+   
+   yolo格式标注框转coco格式
+8. yolo2coco10k
+   
+   yolo格式标注框转coco格式，与7类似
 
-## Yolov8
+
+
+## ultralytics
 
 官网上下的ultralytics库 -> [官方仓库](https://github.com/ultralytics/ultralytics)
 
-虚拟环境安装可参考网上教程
+增加了一些自定义的模块以及训练，验证和辅助功能的代码
 
-新建了./ultralytics-main/train文件夹，包含一个yolov8n的简单训练代码
+由于修改了ultralytics库里面的代码，所以环境需要在ultralytics目录下使用以下代码本地安装
 
-新建了./ultralytics-main/val文件夹，包含一个yolov8n的简单测试代码
+```
+pip install -e .
+```
 
-# 
+新建了./models, ./train, ./val文件夹
+
+新建./ultralytics/nn/modules/custom_block.py文件存放新定义的模块
+
+修改./ultralytics/nn/task.py注册自定义模块
+
+修改./ultralytics/nn/modules/block.py
+
+修改./ultralytics/utils/loss.py

@@ -167,26 +167,20 @@ class PConv(nn.Module):
         self.c1 = c1
         self.c2 = c2
         
-        # 1. 针对卷积部分的卷积层
         self.conv = nn.Conv2d(self.c_part, self.c_part, kernel_size=k, stride=s, padding=k//2, bias=False)
         
-        # 2. 针对透传部分的下采样处理
         if s > 1:
             self.pool = nn.MaxPool2d(kernel_size=3, stride=s, padding=1)
         else:
             self.pool = nn.Identity() 
 
-        # 3. BN 和 激活 (作用于拼接后的特征)
         self.bn = nn.BatchNorm2d(c1)
         self.act = nn.SiLU()
         
-        # 4. 通道数调整 (如果 c1 != c2)
-        # 【关键修改】不使用 Sequential，平铺定义 Conv 和 BN
         if c1 != c2:
             self.residual_conv = nn.Conv2d(c1, c2, kernel_size=1, bias=False)
-            self.residual_bn = nn.BatchNorm2d(c2) # 单独定义 BN
+            self.residual_bn = nn.BatchNorm2d(c2)
         else:
-            # 使用 Identity 占位，保持代码通用性
             self.residual_conv = nn.Identity()
             self.residual_bn = nn.Identity()
 
@@ -204,10 +198,10 @@ class PConv(nn.Module):
         # 4. BN & Act
         out = self.act(self.bn(out))
         
-        # 5. Adapter (顺序执行)
+        # 5. Adapter
         if self.c1 != self.c2:
             out = self.residual_conv(out)
-            out = self.residual_bn(out) # 单独调用 BN
+            out = self.residual_bn(out)
             
         return out
 
@@ -368,3 +362,73 @@ class SPPF_LSKA(nn.Module):
         y1 = self.m(x)
         y2 = self.m(y1)
         return self.cv2(self.lska(torch.cat((x, y1, y2, self.m(y2)), 1)))
+
+
+
+class Bottleneck_AKConv(nn.Module):
+    """Bottleneck using AKConv."""
+
+    def __init__(self, c1, c2, shortcut=True, g=1, e=0.5, num_param=9):
+        super().__init__()
+
+        c_ = int(c2 * e)
+        # 1×1 Conv
+        self.cv1 = Conv(c1, c_, 1, 1)
+        # AKConv代替3×3 Conv
+        self.cv2 = AKConv(
+            c_,
+            c2,
+            num_param=num_param,
+            stride=1
+        )
+
+        self.add = shortcut and c1 == c2
+
+    def forward(self, x):
+
+        y = self.cv2(self.cv1(x))
+
+        if self.add:
+            y = x + y
+
+        return y
+
+
+
+class C2f_AKConv(nn.Module):
+    """C2f using AKConv Bottleneck."""
+
+    def __init__( self, c1, c2, n=1, shortcut=False, g=1, e=0.5, num_param=9):
+        super().__init__()
+
+        self.c = int(c2 * e)
+        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
+        self.cv2 = Conv((2 + n) * self.c, c2, 1)
+
+        self.m = nn.ModuleList(
+            Bottleneck_AKConv(
+                self.c,
+                self.c,
+                shortcut=shortcut,
+                g=g,
+                e=1.0,
+                num_param=num_param,
+            )
+            for _ in range(n)
+        )
+
+    def forward(self, x):
+
+        y = list(self.cv1(x).chunk(2, 1))
+        y.extend(m(y[-1]) for m in self.m)
+
+        return self.cv2(torch.cat(y, 1))
+
+    def forward_split(self, x):
+
+        y = self.cv1(x).split((self.c, self.c), 1)
+        y = [y[0], y[1]]
+
+        y.extend(m(y[-1]) for m in self.m)
+
+        return self.cv2(torch.cat(y, 1))
