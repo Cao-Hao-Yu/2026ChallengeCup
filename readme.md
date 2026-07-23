@@ -2,6 +2,12 @@
 
 目前该仓库包括两个文件夹分别为ultralytics以及data_process的代码
 
+## 写了一个手动合成数据的软件
+
+解压后双击BoatPicker.console.exe运行
+
+链接: https://pan.baidu.com/s/1K0AtAJCMjOplcuBh0eJxKQ?pwd=rfah 提取码: rfah
+
 ## data_process
 
 包括.py文件分别实现
