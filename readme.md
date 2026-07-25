@@ -2,36 +2,15 @@
 
 目前该仓库包括两个文件夹分别为ultralytics以及data_process的代码
 
+## 写了一些小工具
+
+建议解压后双击带console后缀的运行，便于通过控制台查看输出
+
+链接 -> [百度网盘](https://pan.baidu.com/s/1K0AtAJCMjOplcuBh0eJxKQ?pwd=rfah) 
+
 ## data_process
 
-包括.py文件分别实现
-
-1. check_data
-   
-   临时代码，用于debug
-2. count_cls_data
-   
-   统计每个类别实例数量
-3. make_10k_data
-   
-   实例化10k画布，然后选择图片贴在画布上，图片有缩放，旋转等增强
-4. split_dataset
-   
-   划分数据集，按照每个类别8: 2划分
-5. visualize_img
-   
-   可视化图片及标注框
-6. visualize_spec_img
-   
-   可视化特定类别的图片及标注框
-7. yolo2coco
-   
-   yolo格式标注框转coco格式
-8. yolo2coco10k
-   
-   yolo格式标注框转coco格式，与7类似
-
-
+包括多个辅助.py文件分别实现统计类别数量，数据集划分，可视化标注框，格式转换等等
 
 ## ultralytics
 

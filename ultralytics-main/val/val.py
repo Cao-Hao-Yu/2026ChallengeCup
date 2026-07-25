@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from ultralytics import YOLO
 from ultralytics.utils import DEFAULT_CFG
 
-MODEL_PATH = r"./runs/detect/8ne200_spdconv_lskasppf_akconvbottleneck/weights/best.pt"
+MODEL_PATH = r"./runs/detect/26me200_pretrained/weights/best.pt"
 DATA_YAML = r"./train/dataset.yaml"
 
 CONF_THRES = 0.001
@@ -14,7 +14,7 @@ def evaluate_with_ultralytics():
     model = YOLO(MODEL_PATH)
     
     metrics = model.val(
-        save_json=False,
+        save_json=True,
         data=DATA_YAML,
         conf=CONF_THRES,
         imgsz=640,

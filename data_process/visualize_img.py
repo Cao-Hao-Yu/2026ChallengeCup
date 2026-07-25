@@ -14,8 +14,8 @@ plt.rcParams['font.sans-serif'] = ['SimHei']  # Windows自带黑体
 plt.rcParams['axes.unicode_minus'] = False
 
 # 配置路径
-img_dir = r"D:\DeepLearning\Challenger\data\dataset_yolo\images\val"
-lbl_dir = r"D:\DeepLearning\Challenger\data\dataset_yolo\labels\val"
+img_dir = r"D:/DeepLearning/Challenger/data/label_killer_test"
+lbl_dir = r"D:/DeepLearning/Challenger/data/label_killer_test"
 
 # 类别名称字典
 class_names = {

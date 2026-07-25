@@ -111,13 +111,13 @@ def validate_and_export_json(
 if __name__ == "__main__":
     # 配置参数
     CONFIG = {
-        "model_path": "./runs/detect/8me200/weights/best.pt",
-        "source_dir": "D:/DeepLearning/Challenger/data/dataset_10k/images/val/",
+        "model_path": "./runs/detect/26me200_pretrained/weights/best.pt",
+        "source_dir": "D:/DeepLearning/Challenger/data/dataset_coco/images/val/",
         "output_json_path": "./runs/temp/predictions.json",
         "device": "cuda:0",
-        "confidence_threshold": 0.25,
-        "slice_height": 800,
-        "slice_width": 800,
+        "confidence_threshold": 0.001,
+        "slice_height": 256,
+        "slice_width": 256,
         "overlap_height_ratio": 0.2,
         "overlap_width_ratio": 0.2
     }

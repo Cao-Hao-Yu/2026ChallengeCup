@@ -1,123 +1,188 @@
 import os
+import json
 import cv2
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
+import numpy as np
 
+# ================= 配置路径 =================
+IMG_DIR = r"D:\DeepLearning\Challenger\data\dataset_yolo\images\val"
+LABEL_DIR = r"D:\DeepLearning\Challenger\data\dataset_yolo\labels\val"
+PRED_JSON_PATH = r"D:\DeepLearning\Challenger\code\ultralytics-main\runs\detect\val_26me200_pretrained\predictions.json"
+SAVE_DIR = r"D:\DeepLearning\Challenger\code\ultralytics-main\runs\visualize_box"
 
-"""
-    可以检查一下yolo格式标注框是否正确
-    AI代码
-"""
+# ================= 辅助函数 =================
 
-TARGET_CLASS_ID = 24
-NUM_SAMPLES = 4
+def make_dir(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
 
-# 配置路径
-img_dir = r"D:\DeepLearning\Challenger\data\dataset_yolo\images\train"
-lbl_dir = r"D:\DeepLearning\Challenger\data\dataset_yolo\labels\train"
-
-# 类别名称字典
-class_names = {
-    0: 'HM', 1: 'LQS', 2: 'QHS', 3: 'MS', 4: 'A1_SU-35', 
-    5: 'A2_C-130', 6: 'A3_C-17', 7: 'A4_C-5', 8: 'A5_F-16', 9: 'A6_TU-160', 
-    10: 'A7_E-3', 11: 'A8_B-52', 12: 'A9_P-3C', 13: 'A10_B-1B', 14: 'A11_E-8', 
-    15: 'A12_TU-22', 16: 'A13_F-15', 17: 'A14_KC-135', 18: 'A15_F-22', 19: 'A16_FA-18', 
-    20: 'A17_TU-95', 21: 'A18_KC-10', 22: 'A19_SU-34', 23: 'A20_SU-24', 24: 'FSC'
-}
-
-# 为不同类别生成区分颜色
-def get_color(idx):
-    idx = idx * 3
-    r = (idx * 50) % 256
-    g = (idx * 80 + 80) % 256
-    b = (idx * 110 + 160) % 256
-    return (r / 255.0, g / 255.0, b / 255.0)
-
-# 获取所有标签文件并打乱顺序，以便每次运行看到不同的图
-all_lbls = [f for f in os.listdir(lbl_dir) if f.endswith('.txt')]
-import random
-random.shuffle(all_lbls)
-
-# 提取包含目标类别的图片
-matched_files = []
-print(f"正在搜索包含类别 [{TARGET_CLASS_ID} - {class_names.get(TARGET_CLASS_ID, 'Unknown')}] 的图片...")
-
-for lbl_name in all_lbls:
-    lbl_path = os.path.join(lbl_dir, lbl_name)
+def get_yolo_box(box, img_w, img_h):
+    """YOLO格式 (归一化中心点) 转 像素坐标 (x_min, y_min, x_max, y_max)"""
+    x_center, y_center, w, h = box
+    w_pixel = w * img_w
+    h_pixel = h * img_h
+    x_center_pixel = x_center * img_w
+    y_center_pixel = y_center * img_h
     
-    # 先快速读取txt文件检查是否包含目标ID，不用先读图，速度更快
-    has_target = False
-    with open(lbl_path, 'r') as f:
-        for line in f:
-            if int(line.strip().split()[0]) == TARGET_CLASS_ID:
-                has_target = True
-                break
-                
-    if has_target:
-        # 找到对应的图片文件名
-        img_name = os.path.splitext(lbl_name)[0] + '.jpg'
-        img_path = os.path.join(img_dir, img_name)
+    x_min = int(x_center_pixel - w_pixel / 2)
+    y_min = int(y_center_pixel - h_pixel / 2)
+    x_max = int(x_center_pixel + w_pixel / 2)
+    y_max = int(y_center_pixel + h_pixel / 2)
+    
+    return x_min, y_min, x_max, y_max
+
+def get_pred_box(box):
+    """预测格式 [x, y, w, h] (左上角+宽高) 转 (x_min, y_min, x_max, y_max)"""
+    x_min, y_min, w, h = box
+    x_max = int(x_min + w)
+    y_max = int(y_min + h)
+    return int(x_min), int(y_min), x_max, y_max
+
+def draw_label_left(img, text, point, font_scale, thickness, color):
+    """
+    在点(point)的左侧绘制文本标签，带有黑色边框以提高对比度
+    point: 边界框的左上角坐标 (x, y)
+    """
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    # 获取文本大小
+    (text_w, text_h), baseline = cv2.getTextSize(text, font, font_scale, thickness)
+    
+    x, y = point
+    
+    # --- 计算文本位置 ---
+    # 目标：文本框的右下角紧贴边框的左上角
+    # text_x = x - text_w
+    # text_y = y (OpenCV绘制文本的基线在y下方，所以需要调整)
+    
+    # 坐标微调，让文字对齐看起来更舒服
+    text_x = x - text_w - 2 
+    text_y = y + text_h - 2 # 基线位置调整
+
+    # --- 边界检查 ---
+    # 如果左侧空间不足，就画在框的左上角内部
+    if text_x < 0:
+        text_x = x + 2
+        # 如果右侧也不足(极其罕见)，不做额外处理，允许遮挡
+        text_y = y + text_h + 2 # 放在框内部上方一点
+
+    # --- 绘制背景 (可选，这里用黑色描边代替，更省事且看清背景) ---
+    # cv2.rectangle(img, (text_x, text_y - text_h), (text_x + text_w, text_y + baseline), (0,0,0), -1)
+    
+    # 绘制文字 (先画黑色描边，再画彩色字体，防止在复杂背景下看不清)
+    cv2.putText(img, text, (text_x, text_y), font, font_scale, (0, 0, 0), thickness + 1, cv2.LINE_AA)
+    cv2.putText(img, text, (text_x, text_y), font, font_scale, color, thickness, cv2.LINE_AA)
+
+def draw_label_right(img, text, point, font_scale, thickness, color):
+    """
+    在点(point)的右侧绘制文本标签
+    point: 边界框的右上角坐标 (x_max, y_min)
+    """
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    (text_w, text_h), baseline = cv2.getTextSize(text, font, font_scale, thickness)
+    
+    x, y = point
+    
+    # --- 计算文本位置 ---
+    # 目标：文本框的左下角紧贴边框的右上角
+    # 注意：putText的y坐标是基线
+    text_x = x + 2
+    text_y = y + text_h - 2
+
+    # --- 边界检查 ---
+    # 如果右侧空间不足 (text_x + text_w > img_width)，则画在框的右上角内部
+    img_w = img.shape[1]
+    if text_x + text_w > img_w:
+        text_x = x - text_w - 2
+        text_y = y + text_h + 2 # 放在框内部上方一点
+
+    # 绘制文字
+    cv2.putText(img, text, (text_x, text_y), font, font_scale, (0, 0, 0), thickness + 1, cv2.LINE_AA)
+    cv2.putText(img, text, (text_x, text_y), font, font_scale, color, thickness, cv2.LINE_AA)
+
+# ================= 主处理逻辑 =================
+
+def main():
+    make_dir(SAVE_DIR)
+
+    print(f"正在读取预测文件: {PRED_JSON_PATH}")
+    with open(PRED_JSON_PATH, 'r', encoding='utf-8') as f:
+        predictions = json.load(f)
+
+    # 按图片ID分组
+    pred_dict = {}
+    for p in predictions:
+        img_id = p['image_id']
+        if img_id not in pred_dict:
+            pred_dict[img_id] = []
+        pred_dict[img_id].append(p)
+
+    print(f"共读取到 {len(predictions)} 条预测结果，涉及 {len(pred_dict)} 张图片。")
+
+    processed_count = 0
+    
+    for img_id, preds in pred_dict.items():
+        file_name = preds[0]['file_name'] 
+        base_name = os.path.basename(file_name)
+        name_no_ext = os.path.splitext(base_name)[0]
         
-        if os.path.exists(img_path):
-            matched_files.append((img_path, lbl_path))
-            if len(matched_files) >= NUM_SAMPLES:
-                break  # 找够了就停止搜索
+        img_path = os.path.join(IMG_DIR, base_name)
+        label_path = os.path.join(LABEL_DIR, name_no_ext + ".txt")
 
-if not matched_files:
-    print(f"未找到包含类别 {TARGET_CLASS_ID} 的图片。")
-else:
-    print(f"已找到 {len(matched_files)} 张图片，正在生成可视化...")
+        if not os.path.exists(img_path):
+            continue
+        
+        img = cv2.imread(img_path)
+        if img is None:
+            continue
+            
+        img_h, img_w = img.shape[:2]
 
-# 创建画布
-fig, axes = plt.subplots(2, 2, figsize=(15, 15))
-axes = axes.flatten()
+        # --- 绘制标签 ---
+        if os.path.exists(label_path):
+            with open(label_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    parts = line.strip().split()
+                    if len(parts) < 5:
+                        continue
+                    cls_id = int(parts[0]) # 这里本来就是0-24，不需要动
+                    box = list(map(float, parts[1:5]))
+                    
+                    x1, y1, x2, y2 = get_yolo_box(box, img_w, img_h)
+                    
+                    # 绿色框
+                    cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    
+                    # GT标签：画在框的【左侧】
+                    label_text = f"GT-{cls_id}"
+                    draw_label_left(img, label_text, (x1, y1), font_scale=0.5, thickness=1, color=(0, 255, 0))
 
-for i, (img_path, lbl_path) in enumerate(matched_files):
-    img = cv2.imread(img_path)
-    if img is None:
-        continue
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    h, w, _ = img.shape
-    
-    ax = axes[i]
-    ax.imshow(img)
-    ax.axis('off')
-    ax.set_title(os.path.basename(img_path), fontsize=9)
-    
-    # 读取并绘制标签 (绘制该图中的所有标签，但目标类别高亮)
-    with open(lbl_path, 'r') as f:
-        for line in f:
-            parts = line.strip().split()
-            if len(parts) == 5:
-                cls_id = int(parts[0])
-                cx, cy, bw, bh = map(float, parts[1:])
-                
-                x_min = (cx - bw / 2) * w
-                y_min = (cy - bh / 2) * h
-                box_w = bw * w
-                box_h = bh * h
-                
-                # 如果是目标类别，使用高亮颜色(红色)和粗线条；其他类别使用灰色细线条作为参考
-                if cls_id == TARGET_CLASS_ID:
-                    color = 'red'
-                    lw = 2
-                    label_txt = class_names.get(cls_id, str(cls_id))
-                else:
-                    color = 'gray'
-                    lw = 1
-                    label_txt = None # 非目标类别不显示文字，避免干扰
-                
-                rect = patches.Rectangle((x_min, y_min), box_w, box_h,
-                                         linewidth=lw, edgecolor=color, facecolor='none')
-                ax.add_patch(rect)
-                
-                if label_txt:
-                    ax.text(x_min, y_min - 5, label_txt, color='white', fontsize=8,
-                            bbox=dict(facecolor='red', alpha=0.8, edgecolor='none', pad=1))
+        # --- 绘制预测 ---
+        for p in preds:
+            # >>>>>> 这里是修改的地方 <<<<<<
+            # 假设JSON里的ID是1-25，减1后变为0-24，与YOLO标签一致
+            cls_id = p['category_id'] - 1 
+            
+            score = p['score']
+            box = p['bbox']
+            
+            x1, y1, x2, y2 = get_pred_box(box)
+            
+            # 红色框
+            cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 255), 2)
+            
+            # Pred标签：画在框的【右侧】
+            # 这里传入 (x2, y1) 即右上角坐标
+            label_text = f"Pred-{cls_id} {score:.2f}"
+            draw_label_right(img, label_text, (x2, y1), font_scale=0.5, thickness=1, color=(0, 0, 255))
 
-# 隐藏多余的子图
-for j in range(len(matched_files), 4):
-    axes[j].axis('off')
+        save_path = os.path.join(SAVE_DIR, base_name)
+        cv2.imwrite(save_path, img)
+        processed_count += 1
+        
+        if processed_count % 50 == 0:
+            print(f"已处理 {processed_count} 张图片...")
 
-plt.tight_layout()
-plt.show()
+    print(f"完成！所有结果已保存至: {SAVE_DIR}")
+
+
+if __name__ == "__main__":
+    main()
