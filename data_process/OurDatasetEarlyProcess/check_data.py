@@ -6,7 +6,6 @@ import matplotlib.patches as patches
 
 """
     可视化 用于检查yolo格式标注框
-    AI代码
 """
 
 # 解决中文显示问题

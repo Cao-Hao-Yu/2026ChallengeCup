@@ -344,8 +344,8 @@ class v8DetectionLoss:
         h = model.args  # hyperparameters
 
         m = model.model[-1]  # Detect() module
-        # self.bce = nn.BCEWithLogitsLoss(reduction="none")
-        self.bce = FocalLoss()
+        self.bce = nn.BCEWithLogitsLoss(reduction="none")
+        # self.bce = FocalLoss()
         # self.bce = VarifocalLoss()
         self.hyp = h
         self.stride = m.stride  # model strides

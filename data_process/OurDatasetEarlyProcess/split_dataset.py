@@ -8,7 +8,6 @@ from collections import defaultdict
     8:2划分train和val
     在原数据集文件夹中进行划分
     每个类别取20%划分而非总体取20% 这是由于先前统计出某些类别数量非常稀少
-    AI代码 已review
 """
 
 """
@@ -44,10 +43,10 @@ from collections import defaultdict
 random.seed(42)
 
 # 配置路径
-train_img_dir = r"D:\DeepLearning\Challenger\data\dataset_yolo\images\train"
-train_lbl_dir = r"D:\DeepLearning\Challenger\data\dataset_yolo\labels\train"
-val_img_dir = r"D:\DeepLearning\Challenger\data\dataset_yolo\images\val"
-val_lbl_dir = r"D:\DeepLearning\Challenger\data\dataset_yolo\labels\val"
+train_img_dir = r"D:\DeepLearning\Challenger\data\new_dataset_yolo\images\train"
+train_lbl_dir = r"D:\DeepLearning\Challenger\data\new_dataset_yolo\labels\train"
+val_img_dir = r"D:\DeepLearning\Challenger\data\new_dataset_yolo\images\val"
+val_lbl_dir = r"D:\DeepLearning\Challenger\data\new_dataset_yolo\labels\val"
 
 os.makedirs(val_img_dir, exist_ok=True)
 os.makedirs(val_lbl_dir, exist_ok=True)

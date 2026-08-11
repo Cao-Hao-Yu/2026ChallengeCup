@@ -6,7 +6,6 @@ import matplotlib.patches as patches
 
 """
     可视化 用于检查yolo格式标注框
-    AI代码
 """
 
 # 解决中文显示问题
@@ -14,8 +13,8 @@ plt.rcParams['font.sans-serif'] = ['SimHei']  # Windows自带黑体
 plt.rcParams['axes.unicode_minus'] = False
 
 # 配置路径
-img_dir = r"D:/DeepLearning/Challenger/data/label_killer_test"
-lbl_dir = r"D:/DeepLearning/Challenger/data/label_killer_test"
+img_dir = r"D:\DeepLearning\Challenger\data\new_dataset_yolo\images\train"
+lbl_dir = r"D:\DeepLearning\Challenger\data\new_dataset_yolo\labels\train"
 
 # 类别名称字典
 class_names = {

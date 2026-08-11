@@ -1,6 +1,6 @@
 # 总类别数: 25
 
-path: D:\DeepLearning\Challenger\data\dataset_yolo
+path: D:\DeepLearning\Challenger\data\new_dataset_yolo
 train: images/train
 val: images/val
 

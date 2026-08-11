@@ -3,7 +3,6 @@ from collections import Counter
 
 """
     对数据集实例数量的统计
-    AI代码
 """
 
 """
@@ -37,7 +36,7 @@ from collections import Counter
 
 
 # 配置路径 这段代码是在划分数据集之前运行的，如果划分了之后再统计别忘了把val加上
-label_dir = r"D:\DeepLearning\Challenger\data\dataset_yolo\labels\train"
+label_dir = r"D:\DeepLearning\Challenger\data\new_dataset_yolo\labels\train"
 
 # 类别名称字典
 class_names = {

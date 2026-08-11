@@ -4,10 +4,10 @@ import matplotlib.pyplot as plt
 from ultralytics import YOLO
 from ultralytics.utils import DEFAULT_CFG
 
-MODEL_PATH = r"./runs/detect/26me200_pretrained/weights/best.pt"
+MODEL_PATH = r"./runs/new_dataset/8me200/weights/best.pt"
 DATA_YAML = r"./train/dataset.yaml"
 
-CONF_THRES = 0.001
+CONF_THRES = 0.5
 
 
 def evaluate_with_ultralytics():
