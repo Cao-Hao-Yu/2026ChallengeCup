@@ -139,4 +139,5 @@ if __name__ == "__main__":
     # 输出路径
     vis_output_path = r"D:\DeepLearning\Challenger\data\LargerDataset\slice_image_check"
 
+    # 如果模式选择错误不会有标签输出
     visualize_slice_check(slice_path, vis_output_path, mode='hbb', num_samples=20)

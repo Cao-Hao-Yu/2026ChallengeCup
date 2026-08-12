@@ -12,13 +12,24 @@ def slice_dataset(
     target_size=1280, 
     sub_sizes=[960, 640], 
     overlap_ratio=0.2, 
-    min_area_ratio=0.5
+    min_area_ratio=0.5,
+    delete_cropped_images=False  # 新增参数：控制是否删除原图
 ):
     """
     对遥感数据集进行切片处理，支持HBB和OBB格式。
     修复了OBB模式下无法生成标签的问题，支持被截断的OBB（梯形/多边形）。
+    
+    Args:
+        delete_cropped_images (bool): 是否在切片完成后删除原始图像。
     """
     
+    # 安全检查：防止误删输出目录的内容
+    abs_image_dir = os.path.abspath(image_dir)
+    abs_output_dir = os.path.abspath(output_image_dir)
+    if delete_cropped_images and abs_image_dir == abs_output_dir:
+        print("错误：原图目录与输出目录相同，为防止误删切片结果，已停止删除操作。")
+        delete_cropped_images = False
+
     if not os.path.exists(output_image_dir):
         os.makedirs(output_image_dir)
     if not os.path.exists(output_label_dir):
@@ -26,6 +37,8 @@ def slice_dataset(
 
     image_files = [f for f in os.listdir(image_dir) if f.lower().endswith(('.jpg', '.png', '.jpeg', '.tif'))]
     print(f"模式: {mode.upper()} | 开始处理 {len(image_files)} 张图像...")
+    if delete_cropped_images:
+        print("警告：已开启原图删除模式，处理完成后将删除原始图像文件。")
 
     for img_name in image_files:
         img_path = os.path.join(image_dir, img_name)
@@ -43,7 +56,16 @@ def slice_dataset(
         if w <= target_size and h <= target_size:
             cv2.imwrite(os.path.join(output_image_dir, img_name), img)
             if os.path.exists(label_path):
-                shutil.copy(label_path, os.path.join(output_image_dir, label_name))
+                shutil.copy(label_path, os.path.join(output_label_dir, label_name))
+            
+            # 如果开启删除且图像是直接复制的（小图），也在这里执行删除逻辑
+            if delete_cropped_images:
+                try:
+                    os.remove(img_path)
+                    # 可选：如果你也想删除对应的标签文件，取消下面注释
+                    # if os.path.exists(label_path): os.remove(label_path)
+                except Exception as e:
+                    print(f"删除文件 {img_name} 失败: {e}")
             continue
 
         # 解析标签
@@ -58,6 +80,9 @@ def slice_dataset(
         # 获取切片坐标
         slices_coords = _get_slice_coords(w, h, sub_sizes, overlap_ratio)
         base_name = os.path.splitext(img_name)[0]
+        
+        # 标记是否需要删除原图（只有生成了切片才删除）
+        should_delete = delete_cropped_images and len(slices_coords) > 0
         
         for idx, (sx, sy, sw, sh) in enumerate(slices_coords):
             new_img_name = f"{base_name}__slice_{idx}.jpg"
@@ -184,6 +209,15 @@ def slice_dataset(
             if new_labels:
                 with open(os.path.join(output_label_dir, new_label_name), 'w', encoding='utf-8') as f:
                     f.writelines(new_labels)
+
+        # 删除原图逻辑
+        if should_delete:
+            try:
+                os.remove(img_path)
+                # 可选：如果你也想删除对应的标签文件，取消下面注释
+                # if os.path.exists(label_path): os.remove(label_path)
+            except Exception as e:
+                print(f"删除原图失败 {img_name}: {e}")
 
     print("处理完成！")
 
@@ -319,7 +353,12 @@ def _get_slice_coords(img_w, img_h, sub_sizes, overlap):
     return slices
 
 if __name__ == "__main__":
-    # 测试 OBB 切片
+    # 将 delete_cropped_images 设置为 True 即可删除原图
+    # 模式选择错误将不会有标签输出
+    # 如果文件名与标签名不一样也不会有标签输出
+    # target size表示大于这个尺寸的对裁剪
+    # sub size表示裁剪的尺寸会从中选择,最小480，更小的残片会被丢弃
+    # obb模式如果切割出非常不规则的情况会尝试寻找最小旋转矩形
     slice_dataset(
         image_dir=r"D:\DeepLearning\Challenger\data\LargerDataset\HRPlanes\images",
         label_dir=r"D:\DeepLearning\Challenger\data\LargerDataset\HRPlanes\hbblabels",
@@ -327,7 +366,8 @@ if __name__ == "__main__":
         output_label_dir=r"D:\DeepLearning\Challenger\data\LargerDataset\slice_image_temp",
         mode='hbb',
         target_size=1280,
-        sub_sizes=[960, 640],
+        sub_sizes=[960, 640, 480],
         overlap_ratio=0.2,
-        min_area_ratio=0.2
+        min_area_ratio=0.2,
+        delete_cropped_images=False
     )

@@ -1,4 +1,5 @@
-## 将[x, y, w, h]标注改成[x1, y1][x2, y2][x3, y3][x4, y4]
+# 将[x, y, w, h]标注改成[x1, y1][x2, y2][x3, y3][x4, y4]
+# 在relabel之后执行
 import os
 
 def hbb_to_obb(hbb_dir, obb_dir):

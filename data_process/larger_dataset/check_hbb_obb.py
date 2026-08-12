@@ -1,3 +1,5 @@
+# 如果发现obb框是平行四边形的不正，大概率是图像尺寸设置错误
+
 import os
 import cv2
 import numpy as np
@@ -112,10 +114,11 @@ def visualize_conversion(hbb_dir, obb_dir, output_dir, img_size=(1166, 753), num
 
 if __name__ == "__main__":
     # 输入路径配置
-    hbb_path = r"D:\DeepLearning\Challenger\data\LargerDataset\ShipRSImageNet\hbblabels"
-    obb_path = r"D:\DeepLearning\Challenger\data\LargerDataset\ShipRSImageNet\obblabels"
+    hbb_path = r"D:\DeepLearning\Challenger\data\LargerDataset\VHRShips\hbblabels"
+    obb_path = r"D:\DeepLearning\Challenger\data\LargerDataset\VHRShips\obblabels"
     
     # 输出路径配置
     output_path = r"D:\DeepLearning\Challenger\data\LargerDataset\obb_hbb_check"
-    
-    visualize_conversion(hbb_path, obb_path, output_path, img_size=(1280, 800), num_samples=10)
+
+    # 如果obb框变形，多半是图像尺寸的问题
+    visualize_conversion(hbb_path, obb_path, output_path, img_size=(1280, 720), num_samples=10)
