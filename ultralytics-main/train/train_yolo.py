@@ -1,18 +1,20 @@
-# 预训练权重下载地址 https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n.pt
-
 from ultralytics import YOLO
 from ultralytics.utils import DEFAULT_CFG
 
 # import os
 # os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
+# !?注注?!
+# 可能需要跑很久 batch epochs 可能需要调一调
+# 还有就是大类的损失系数 目前是 0.1 可能偏小 没有测试过其他值
+
 if __name__ == "__main__":
-    DEFAULT_CFG.save_dir = r"./runs/new_dataset/8me200"
-    model = YOLO(r"D:\DeepLearning\Challenger\code\ultralytics-main\models\yolov8m.pt")
+    DEFAULT_CFG.save_dir = r"./runs/new_dataset/test"
+    model = YOLO(model=r"models/yolo_test.yaml")
     model.train(
         data=r"./train/dataset.yaml",
         epochs=200,
-        imgsz=640,
+        imgsz=960,
         batch=16,
         device=0
     )

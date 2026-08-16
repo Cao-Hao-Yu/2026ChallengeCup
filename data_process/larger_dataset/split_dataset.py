@@ -155,6 +155,9 @@ def process_split(file_list, target_img_dir, target_lbl_dir, split_name):
     print(f"已复制 {count} 个文件到 {split_name} 目录。")
 
 
+# !?注注?!
+# 未经测试 谨慎使用 但原来那个数据集划分算法是测试过的
+# 需要注意比赛数据集和普通数据集划分方式不一样
 if __name__ == "__main__":
     # ================= 配置区域 =================
     source_image_dir = r""

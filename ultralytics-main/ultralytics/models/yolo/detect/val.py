@@ -59,6 +59,29 @@ class DetectionValidator(BaseValidator):
         self.niou = self.iouv.numel()
         self.metrics = DetMetrics()
 
+        self.custom_tp = np.zeros(1)
+        self.custom_fp = np.zeros(1)
+        self.custom_gt = np.zeros(1)
+
+    # !?注注?!
+    def split_hierarchical_class(self, raw_cls):
+        raw_cls = raw_cls.long()
+        is_two_digit_spec = raw_cls >= 100
+
+        base = torch.where(
+            is_two_digit_spec,
+            raw_cls // 100,
+            raw_cls // 10,
+        )
+
+        spec = torch.where(
+            is_two_digit_spec,
+            raw_cls % 100,
+            raw_cls % 10,
+        )
+        
+        return base, spec
+    
     def preprocess(self, batch: dict[str, Any]) -> dict[str, Any]:
         """Preprocess batch of images for YOLO validation.
 
@@ -99,6 +122,11 @@ class DetectionValidator(BaseValidator):
         self.metrics.clear_image_metrics()
         self.confusion_matrix = ConfusionMatrix(names=model.names, save_matches=self.args.plots and self.args.visualize)
 
+        # !?注注?!
+        self.custom_tp = np.zeros(self.nc)
+        self.custom_fp = np.zeros(self.nc)
+        self.custom_gt = np.zeros(self.nc)
+
     def get_desc(self) -> str:
         """Return a formatted string summarizing class metrics of YOLO model."""
         return ("%22s" + "%11s" * 6) % ("Class", "Images", "Instances", "Box(P", "R", "mAP50", "mAP50-95)")
@@ -126,33 +154,63 @@ class DetectionValidator(BaseValidator):
         )
         return [{"bboxes": x[:, :4], "conf": x[:, 4], "cls": x[:, 5], "extra": x[:, 6:]} for x in outputs]
 
-    def _prepare_batch(self, si: int, batch: dict[str, Any]) -> dict[str, Any]:
-        """Prepare a batch of images and annotations for validation.
+    # !?注注?! 这是原有代码
+    # def _prepare_batch(self, si: int, batch: dict[str, Any]) -> dict[str, Any]:
+    #     """Prepare a batch of images and annotations for validation.
 
-        Args:
-            si (int): Sample index within the batch.
-            batch (dict[str, Any]): Batch data containing images and annotations.
+    #     Args:
+    #         si (int): Sample index within the batch.
+    #         batch (dict[str, Any]): Batch data containing images and annotations.
 
-        Returns:
-            (dict[str, Any]): Prepared batch with processed annotations.
-        """
+    #     Returns:
+    #         (dict[str, Any]): Prepared batch with processed annotations.
+    #     """
+    #     idx = batch["batch_idx"] == si
+    #     cls = batch["cls"][idx].squeeze(-1)
+    #     bbox = batch["bboxes"][idx]
+    #     ori_shape = batch["ori_shape"][si]
+    #     imgsz = batch["img"].shape[2:]
+    #     ratio_pad = batch["ratio_pad"][si]
+    #     if cls.shape[0]:
+    #         bbox = ops.xywh2xyxy(bbox) * torch.tensor(imgsz, device=self.device)[[1, 0, 1, 0]]  # target boxes
+    #     return {
+    #         "cls": cls,
+    #         "bboxes": bbox,
+    #         "ori_shape": ori_shape,
+    #         "imgsz": imgsz,
+    #         "ratio_pad": ratio_pad,
+    #         "im_file": batch["im_file"][si],
+    #     }
+    
+    # 这是我的
+    def _prepare_batch(self, si: int, batch: dict) -> dict:
         idx = batch["batch_idx"] == si
-        cls = batch["cls"][idx].squeeze(-1)
+        cls_raw = batch["cls"][idx].squeeze(-1)
         bbox = batch["bboxes"][idx]
         ori_shape = batch["ori_shape"][si]
         imgsz = batch["img"].shape[2:]
         ratio_pad = batch["ratio_pad"][si]
-        if cls.shape[0]:
-            bbox = ops.xywh2xyxy(bbox) * torch.tensor(imgsz, device=self.device)[[1, 0, 1, 0]]  # target boxes
+
+        # 解析 class id
+        if cls_raw.shape[0]:
+            _, spec_cls = self.split_hierarchical_class(cls_raw)
+            # 验证这里直接跳过小类缺失情况
+            valid_mask = spec_cls < 25
+            spec_cls = spec_cls[valid_mask]
+            bbox = bbox[valid_mask]
+            bbox = ops.xywh2xyxy(bbox) * torch.tensor(imgsz, device=self.device)[[1, 0, 1, 0]]
+        else:
+            spec_cls = cls_raw  # 空tensor
+
         return {
-            "cls": cls,
+            "cls": spec_cls,
             "bboxes": bbox,
             "ori_shape": ori_shape,
             "imgsz": imgsz,
             "ratio_pad": ratio_pad,
             "im_file": batch["im_file"][si],
         }
-
+    
     def _prepare_pred(self, pred: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Prepare predictions for evaluation against ground truth.
 
@@ -166,6 +224,8 @@ class DetectionValidator(BaseValidator):
             pred["cls"] *= 0
         return pred
 
+    # !?注注?!
+    # 指标计算多算了几个 用的官方api 我们就当官方的iou计算实现和比赛的实现相同
     def update_metrics(self, preds: list[dict[str, torch.Tensor]], batch: dict[str, Any]) -> None:
         """Update metrics with new predictions and ground truth.
 
@@ -180,16 +240,34 @@ class DetectionValidator(BaseValidator):
 
             cls = pbatch["cls"].cpu().numpy()
             no_pred = predn["cls"].shape[0] == 0
-            self.metrics.update_stats(
-                {
-                    **self._process_batch(predn, pbatch),
-                    "target_cls": cls,
-                    "target_img": np.unique(cls),
-                    "conf": np.zeros(0) if no_pred else predn["conf"].cpu().numpy(),
-                    "pred_cls": np.zeros(0) if no_pred else predn["cls"].cpu().numpy(),
-                    "im_name": Path(pbatch["im_file"]).name,
-                }
-            )
+            stat_batch = {
+                **self._process_batch(predn, pbatch),
+                "target_cls": cls,
+                "target_img": np.unique(cls),
+                "conf": np.zeros(0) if no_pred else predn["conf"].cpu().numpy(),
+                "pred_cls": np.zeros(0) if no_pred else predn["cls"].cpu().numpy(),
+                "im_name": Path(pbatch["im_file"]).name,
+            }
+            self.metrics.update_stats(stat_batch)
+
+            tp_col = stat_batch["tp"][:, 0] if stat_batch["tp"].shape[0] > 0 else np.zeros(0)
+            pred_cls_np = stat_batch["pred_cls"]
+            target_cls_np = stat_batch["target_cls"]
+
+            for c in target_cls_np:
+                c_int = int(c)
+                if 0 <= c_int < self.nc:
+                    self.custom_gt[c_int] += 1
+
+            for i, is_tp in enumerate(tp_col):
+                p_c = int(pred_cls_np[i])
+                if not (0 <= p_c < self.nc): continue
+                
+                if is_tp:
+                    self.custom_tp[p_c] += 1
+                else:
+                    self.custom_fp[p_c] += 1
+
             # Evaluate
             if self.args.plots:
                 self.confusion_matrix.process_batch(predn, pbatch, conf=self.args.conf)
@@ -298,6 +376,54 @@ class DetectionValidator(BaseValidator):
                         *self.metrics.class_result(i),
                     )
                 )
+                
+        # !?注注?!
+        if not self.training:
+            LOGGER.info("")
+            LOGGER.info("Attention => all metrics are calculate with iou threshold = 0.5")
+            # print("LOGGER 不支持中文 上面的意思是我这里所有指标均是在 iou 为 0.5 的情况下算的")
+            LOGGER.info("")
+            header = "%22s" + "%11s" * 6
+            LOGGER.info(header % ("Class", "GT", "TP", "FP", "Recall", "FP_Rate", "F1"))
+            row_fmt = "%22s" + "%11i" * 3 + "%11.3g" * 3
+
+            total_recall_weighted = 0.0
+            total_fpr_weighted = 0.0
+
+            weights = np.zeros(self.nc)
+            weights[0:4] = 1.0 / 12.0   # Class 0,1,2,3
+            weights[4:24] = 1.0 / 60.0  # Class 4...23
+            weights[24] = 1.0 / 3.0     # Class 24
+            
+            for i in range(self.nc):
+                gt = self.custom_gt[i]
+                tp = self.custom_tp[i]
+                fp = self.custom_fp[i]
+                
+                recall = (tp / gt) if gt > 0 else 0.0
+                fp_rate = (fp / (tp + fp)) if (tp + fp) > 0 else 0.0
+                precision = (tp / (tp + fp)) if (tp + fp) > 0 else 0.0
+                f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+
+                class_name = self.names[i] if hasattr(self, 'names') and self.names else str(i)
+
+                total_recall_weighted += weights[i] * recall
+                total_fpr_weighted += weights[i] * fp_rate
+
+                LOGGER.info(row_fmt % (class_name, gt, tp, fp, recall, fp_rate, f1))
+
+            LOGGER.info("")
+            LOGGER.info(
+                row_fmt % (
+                    "total => ", 
+                    self.custom_gt.sum(),
+                    self.custom_tp.sum(),
+                    self.custom_fp.sum(),
+                    total_recall_weighted,
+                    total_fpr_weighted,
+                    0.0, # F1置0
+                )
+            )
 
     def _process_batch(self, preds: dict[str, torch.Tensor], batch: dict[str, Any]) -> dict[str, np.ndarray]:
         """Return correct prediction matrix.

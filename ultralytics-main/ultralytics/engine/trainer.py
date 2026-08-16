@@ -544,6 +544,7 @@ class BaseTrainer:
 
             # Validation
             final_epoch = epoch + 1 >= self.epochs
+            # 嘻嘻
             if self.args.val or final_epoch or self.stopper.possible_stop or self.stop:
                 self._clear_memory(None if self.device.type == "mps" else 0.5)  # prevent VRAM spike
                 self.metrics, self.fitness = self.validate()
@@ -589,6 +590,7 @@ class BaseTrainer:
         seconds = time.time() - self.train_time_start
         LOGGER.info(f"\n{epoch - self.start_epoch + 1} epochs completed in {seconds / 3600:.3f} hours.")
         # Do final val with best.pt
+        # 嘻嘻
         self.final_eval()
         if RANK in {-1, 0}:
             if self.args.plots:

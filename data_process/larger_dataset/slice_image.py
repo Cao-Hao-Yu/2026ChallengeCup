@@ -13,7 +13,7 @@ def slice_dataset(
     sub_sizes=[960, 640], 
     overlap_ratio=0.2, 
     min_area_ratio=0.5,
-    delete_cropped_images=False  # 新增参数：控制是否删除原图
+    delete_cropped_images=False
 ):
     """
     对遥感数据集进行切片处理，支持HBB和OBB格式。
@@ -353,11 +353,13 @@ def _get_slice_coords(img_w, img_h, sub_sizes, overlap):
     return slices
 
 if __name__ == "__main__":
+    # !?注注?!
+    # 参数可能需要调一调 可以配合可视化代码先切一些图片进行测试
     # 将 delete_cropped_images 设置为 True 即可删除原图
     # 模式选择错误将不会有标签输出
     # 如果文件名与标签名不一样也不会有标签输出
     # target size表示大于这个尺寸的对裁剪
-    # sub size表示裁剪的尺寸会从中选择,最小480，更小的残片会被丢弃
+    # sub size表示裁剪的尺寸会从中选择,最小640，更小的残片会被丢弃
     # obb模式如果切割出非常不规则的情况会尝试寻找最小旋转矩形
     slice_dataset(
         image_dir=r"D:\DeepLearning\Challenger\data\LargerDataset\HRPlanes\images",
@@ -366,8 +368,10 @@ if __name__ == "__main__":
         output_label_dir=r"D:\DeepLearning\Challenger\data\LargerDataset\slice_image_temp",
         mode='hbb',
         target_size=1280,
-        sub_sizes=[960, 640, 480],
-        overlap_ratio=0.2,
-        min_area_ratio=0.2,
+        # 0.25和960，640是对应的
+        sub_sizes=[960, 640],
+        overlap_ratio=0.25,
+        # 这个值非常激进
+        min_area_ratio=0.1,
         delete_cropped_images=False
     )

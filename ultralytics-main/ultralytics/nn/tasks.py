@@ -47,6 +47,8 @@ from ultralytics.nn.modules import (
     Conv2,
     ConvTranspose,
     Detect,
+    # !?注注?!
+    MultiDetect,
     DWConv,
     DWConvTranspose2d,
     Focus,
@@ -1848,6 +1850,7 @@ def parse_model(d, ch, verbose=True):
             SCDown,
             C2fCIB,
             A2C2f,
+            # !?注注?!
             PConv,
             SPDConv,
             SPPF_LSKA,
@@ -1872,6 +1875,7 @@ def parse_model(d, ch, verbose=True):
             C2fCIB,
             C2PSA,
             A2C2f,
+            # !?注注?!
             C2f_AKConv
         }
     )
@@ -1930,6 +1934,8 @@ def parse_model(d, ch, verbose=True):
         elif m in frozenset(
             {
                 Detect,
+                # !?注注?!
+                MultiDetect,
                 WorldDetect,
                 YOLOEDetect,
                 Segment,
@@ -1945,7 +1951,12 @@ def parse_model(d, ch, verbose=True):
             args.extend([reg_max, end2end, [ch[x] for x in f]])
             if m is Segment or m is YOLOESegment or m is Segment26 or m is YOLOESegment26:
                 args[2] = make_divisible(min(args[2], max_channels) * width, 8)
+            # !?注注?!
             if m in {Detect, YOLOEDetect, Segment, Segment26, YOLOESegment, YOLOESegment26, Pose, Pose26, OBB, OBB26}:
+                m.legacy = legacy
+            # !?注注?!
+            # 这样对吗 我不是很确定
+            if m is MultiDetect:
                 m.legacy = legacy
         elif m is SemanticSegment:
             args.append([ch[x] for x in f])  # nc, ch tuple
@@ -2075,7 +2086,8 @@ def guess_model_task(model):
                 return "pose"
             elif isinstance(m, OBB):
                 return "obb"
-            elif isinstance(m, (Detect, WorldDetect, YOLOEDetect, v10Detect)):
+            # !?注注?!
+            elif isinstance(m, (Detect, MultiDetect, WorldDetect, YOLOEDetect, v10Detect)):
                 return "detect"
 
     # Guess from model filename

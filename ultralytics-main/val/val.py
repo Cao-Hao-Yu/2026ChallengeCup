@@ -4,36 +4,23 @@ import matplotlib.pyplot as plt
 from ultralytics import YOLO
 from ultralytics.utils import DEFAULT_CFG
 
-MODEL_PATH = r"./runs/new_dataset/8me200/weights/best.pt"
+MODEL_PATH = r"./runs/new_dataset/test/weights/best.pt"
 DATA_YAML = r"./train/dataset.yaml"
 
-CONF_THRES = 0.5
+# !?注注?!
+# 改过 validator 会直接输出指标
+# 置信度阈值得调一个符合硬性指标的值
 
+CONF_THRES = 0.35
 
-def evaluate_with_ultralytics():
+if __name__ == "__main__":
     model = YOLO(MODEL_PATH)
-    
-    metrics = model.val(
+    model.val(
         save_json=True,
         data=DATA_YAML,
         conf=CONF_THRES,
-        imgsz=640,
+        imgsz=960,
         split='val',
         plots=True,
         device=0
     )
-    
-    precision = metrics.box.p.mean()
-    recall = metrics.box.r.mean()
-    
-    # 用1-precision来近似的虚警率
-    false_alarm_rate = 1 - precision
-    
-    print(f"conf={CONF_THRES}")
-    print(f"total precision: {precision:.4f}")
-    print(f"total recall: {recall:.4f}")
-    print(f"FP rate (1 - Precision): {false_alarm_rate:.4f}")
-
-
-if __name__ == "__main__":
-    evaluate_with_ultralytics()

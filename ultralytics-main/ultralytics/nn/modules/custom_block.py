@@ -7,6 +7,8 @@ from .conv import Conv, DWConv, GhostConv, LightConv, RepConv, autopad
 import math
 from einops import rearrange
 
+# !?注注?!
+# 补了几个即插即用模块
 
 class AKConv(nn.Module):
     def __init__(self, inc, outc, num_param, stride=1, bias=None):

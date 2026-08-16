@@ -261,6 +261,111 @@ class Detect(nn.Module):
         """Remove the one2many head for inference optimization."""
         self.cv2 = self.cv3 = None
 
+# !?注注?!
+# 担心改Detect基类会影响其他组件 于是新建了一个继承
+class MultiDetect(Detect):
+    def __init__(self, nc: int = 25, nbc: int = 3, reg_max=16, end2end=False, ch: tuple = ()):
+        super().__init__(nc, reg_max, end2end, ch)
+        self.nbc = nbc  # number of base class
+
+        c4 = max(ch[0], min(self.nbc, 100))
+        self.cv4 = (
+            nn.ModuleList(nn.Sequential(Conv(x, c4, 3), Conv(c4, c4, 3), nn.Conv2d(c4, self.nbc, 1)) for x in ch)
+            if self.legacy
+            else nn.ModuleList(
+                nn.Sequential(
+                    nn.Sequential(DWConv(x, x, 3), Conv(x, c4, 1)),
+                    nn.Sequential(DWConv(c4, c4, 3), Conv(c4, c4, 1)),
+                    nn.Conv2d(c4, self.nbc, 1),
+                )
+                for x in ch
+            )
+        )
+
+        if end2end:
+            self.one2one_cv4 = copy.deepcopy(self.cv4)
+
+    @property
+    def one2many(self):
+        return dict(box_head=self.cv2, cls_head=self.cv3, base_cls_head=self.cv4)
+
+    @property
+    def one2one(self):
+        return dict(box_head=self.one2one_cv2, cls_head=self.one2one_cv3, base_cls_head = self.one2one_cv4)
+    
+    def forward_head(
+        self, x: list[torch.Tensor], box_head: torch.nn.Module = None, cls_head: torch.nn.Module = None, base_cls_head: torch.nn.Module = None
+    ) -> dict[str, torch.Tensor]:
+        if box_head is None or cls_head is None or base_cls_head is None:
+            return dict()
+        
+        bs = x[0].shape[0]  # batch size
+        boxes = torch.cat([box_head[i](x[i]).view(bs, 4 * self.reg_max, -1) for i in range(self.nl)], dim=-1)
+        scores = torch.cat([cls_head[i](x[i]).view(bs, self.nc, -1) for i in range(self.nl)], dim=-1)
+        base_scores = torch.cat([base_cls_head[i](x[i]).view(bs, self.nbc, -1) for i in range(self.nl)], dim=-1)
+
+        return dict(boxes=boxes, scores=scores, base_scores=base_scores, feats=x)
+    
+    def forward(
+        self, x: list[torch.Tensor]
+    ) -> dict[str, torch.Tensor] | torch.Tensor | tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        preds = self.forward_head(x, **self.one2many)
+        if self.end2end:
+            x_detach = [xi.detach() for xi in x]
+            one2one = self.forward_head(x_detach, **self.one2one)
+            preds = {"one2many": preds, "one2one": one2one}
+        if self.training:
+            return preds
+        y = self._inference(preds["one2one"] if self.end2end else preds)
+        if self.end2end:
+            y = self.postprocess(y.permute(0, 2, 1))
+        return y if self.export else (y, preds)
+
+    def _inference(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
+        # Inference path
+        dbox = self._get_decode_boxes(x)
+        
+        # return torch.cat((dbox, x["scores"].sigmoid(), x["base_scores"].sigmoid()), 1)
+        # 推理不输出大类
+        return torch.cat((dbox, x["scores"].sigmoid()), 1)
+
+    def bias_init(self):
+        for i, (a, b, c) in enumerate(zip(self.one2many["box_head"], self.one2many["cls_head"], self.one2many["base_cls_head"])):
+            a[-1].bias.data[:] = 2.0  # box
+            b[-1].bias.data[: self.nc] = math.log(
+                5 / self.nc / (640 / self.stride[i]) ** 2
+            )  # cls
+            c[-1].bias.data[: self.nbc] = math.log(
+                5 / self.nbc / (640 / self.stride[i]) ** 2
+            )  # base cls
+        if self.end2end:
+            for i, (a, b) in enumerate(zip(self.one2one["box_head"], self.one2one["cls_head"], self.one2one["base_cls_head"])):
+                a[-1].bias.data[:] = 2.0
+                b[-1].bias.data[: self.nc] = math.log(
+                    5 / self.nc / (640 / self.stride[i]) ** 2
+                )
+                c[-1].bias.data[: self.nbc] = math.log(
+                    5 / self.nbc / (640 / self.stride[i]) ** 2
+                )
+
+    # !?注注?!
+    # 这个函数应该不用改，因为这个貌似只有end2end会调用
+    def postprocess(self, preds: torch.Tensor) -> torch.Tensor:
+        # boxes, scores = preds.split([4, self.nc], dim=-1)
+        # scores, conf, idx = self.get_topk_index(scores, self.max_det)
+        # boxes = boxes.gather(dim=1, index=idx.repeat(1, 1, 4))
+        # return torch.cat([boxes, scores, conf], dim=-1)
+    
+        boxes, scores, base_scores = preds.split([4, self.nc, self.nbc], dim=-1)
+        scores, conf, idx = self.get_topk_index(scores, self.max_det)
+        boxes = boxes.gather(dim=1, index=idx.repeat(1, 1, 4))
+        base_scores = base_scores.gather(dim=1, index=idx.repeat(1, 1, self.nbc))
+        return torch.cat([boxes, scores, conf, base_scores], dim=-1)
+
+    def fuse(self) -> None:
+        self.cv2 = self.cv3 = self.cv4 = None
+
+
 
 class Segment(Detect):
     """YOLO Segment head for segmentation models.

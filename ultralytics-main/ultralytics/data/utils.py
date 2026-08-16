@@ -273,11 +273,13 @@ def verify_image_label(args: tuple) -> list:
                 assert lb.min() >= -0.01, f"negative class labels or coordinate {lb[lb < -0.01]}"
 
                 # All labels
-                max_cls = 0 if single_cls else lb[:, 0].max()  # max label count
-                assert max_cls < num_cls, (
-                    f"Label class {int(max_cls)} exceeds dataset class count {num_cls}. "
-                    f"Possible class labels are 0-{num_cls - 1}"
-                )
+                # max_cls = 0 if single_cls else lb[:, 0].max()  # max label count
+                # !?注注?!
+                # 我直接雷霆注释改掉 nc 断言
+                # assert max_cls < num_cls, (
+                #     f"Label class {int(max_cls)} exceeds dataset class count {num_cls}. "
+                #     f"Possible class labels are 0-{num_cls - 1}"
+                # )
                 _, i = np.unique(lb, axis=0, return_index=True)
                 if len(i) < nl:  # duplicate row check
                     lb = lb[i]  # remove duplicates

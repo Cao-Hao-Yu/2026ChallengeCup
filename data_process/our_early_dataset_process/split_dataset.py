@@ -5,6 +5,7 @@ from collections import defaultdict
 
 
 """
+    # !?注注?!
     8:2划分train和val
     在原数据集文件夹中进行划分
     每个类别取20%划分而非总体取20% 这是由于先前统计出某些类别数量非常稀少
@@ -39,7 +40,6 @@ from collections import defaultdict
     总实例数量: 20933
 """
 
-
 random.seed(42)
 
 # 配置路径
@@ -52,7 +52,7 @@ os.makedirs(val_img_dir, exist_ok=True)
 os.makedirs(val_lbl_dir, exist_ok=True)
 
 def get_file_info(img_dir, lbl_dir):
-    """扫描目录，获取所有图片及其包含的类别信息"""
+    """扫描目录，获取所有图片及其包含的层级类别信息"""
     file_info = []
     for img_filename in os.listdir(img_dir):
         if not img_filename.lower().endswith(('.jpg', '.jpeg', '.png')):
@@ -67,22 +67,41 @@ def get_file_info(img_dir, lbl_dir):
             
         with open(lbl_path, 'r') as f:
             classes_in_file = set()
+            sub_classes_in_file = [] # 用于存储所有解析出的小类ID，方便后续处理
+            
             for line in f:
                 parts = line.strip().split()
                 if parts:
-                    classes_in_file.add(int(parts[0]))
-        
-        # 为了实现分层抽样，我们为每张图片指定一个"主类别"
-        # 策略：取该图片中包含的最小类别ID作为主类别
-        main_class = min(classes_in_file) if classes_in_file else -1
+                    class_id_str = parts[0]
+                    # 保存原始类别字符串
+                    classes_in_file.add(class_id_str)
+                    
+                    # 解析小类ID (冒号后面的数字)
+                    if ':' in class_id_str:
+                        # 例如 "0:0" -> "0"
+                        sub_id = class_id_str.split(':')[1]
+                    else:
+                        # 兼容不含冒号的旧格式
+                        sub_id = class_id_str
+                    
+                    # 转换为整数以便后续排序和比较
+                    try:
+                        sub_classes_in_file.append(int(sub_id))
+                    except ValueError:
+                        pass # 忽略无法转换的格式
+
+        # 核心修改点：使用小类ID作为分层抽样的依据
+        # 策略：取该图片中包含的最小小类ID作为主类别
+        # 这样可以确保即使是包含多个类别的图片，也有明确的归属桶
+        main_class = min(sub_classes_in_file) if sub_classes_in_file else -1
         
         file_info.append({
             'img_filename': img_filename,
             'lbl_filename': lbl_filename,
             'img_path': img_path,
             'lbl_path': lbl_path,
-            'main_class': main_class,
-            'classes': classes_in_file
+            'main_class': main_class, # 这里存的是小类ID (int)
+            'classes': classes_in_file # 这里存的是原始字符串 (set)
         })
     return file_info
 
@@ -91,7 +110,7 @@ print("\n正在扫描 train 目录...")
 all_files = get_file_info(train_img_dir, train_lbl_dir)
 print(f"共发现 {len(all_files)} 个文件待划分。")
 
-
+# 按小类ID分组进行分层抽样
 files_by_class = defaultdict(list)
 for info in all_files:
     files_by_class[info['main_class']].append(info)
@@ -100,6 +119,7 @@ val_files = []
 train_files = []
 
 for cls_id, files in files_by_class.items():
+    # cls_id 现在是冒号后面的数字
     random.shuffle(files)
     val_count = int(len(files) * 0.2)
            
@@ -110,13 +130,14 @@ for cls_id, files in files_by_class.items():
 print(f"\n划分结果: Train: {len(train_files)} 张, Val: {len(val_files)} 张")
 print(f"验证集比例: {len(val_files) / len(all_files) * 100:.2f}%")
 
-# 统计验证集中各类别的分布，确认稀有类别被正确划分
+# 统计验证集中各类别（原始ID）的分布
 val_class_dist = defaultdict(int)
 for info in val_files:
     for cls in info['classes']:
         val_class_dist[cls] += 1
 
-print("\n验证集各类别实例数量检查:")
+print("\n验证集各类别实例数量检查 (原始ID):")
+# 按字符串排序输出
 for cls_id in sorted(val_class_dist.keys()):
     print(f"  类别 {cls_id}: {val_class_dist[cls_id]} 个实例")
 
