@@ -669,7 +669,8 @@ class v8DetectionLoss:
         # 有效值 mask
         spec_valid_mask = (gt_spec != 25)
         gt_spec_clean = gt_spec.clone()
-        gt_spec_clean[~spec_valid_mask] = -1 
+        gt_spec_clean[~spec_valid_mask] = -1
+        # 记得 -1 哦 宝宝
         gt_base_labels = gt_base.unsqueeze(-1) - 1
         gt_spec_labels = gt_spec_clean.unsqueeze(-1)
 

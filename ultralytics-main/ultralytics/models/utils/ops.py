@@ -236,6 +236,12 @@ def get_cdn_group(
     if max_nums == 0:
         return None, None, None, None
 
+    # !?注注?!
+    if training and batch is not None:
+        # 这里解析标签是cdn需要 在cdn里面解析也一样
+        # 原来是放在head里面调用的 在调用这个函数之前
+        _fix_labels(batch)
+
     num_group = num_dn // max_nums
     num_group = 1 if num_group == 0 else num_group
     # Pad gt to max_num of a batch
@@ -312,3 +318,32 @@ def get_cdn_group(
         attn_mask.to(class_embed.device),
         dn_meta,
     )
+
+# !?注注?!
+def _fix_labels(batch: dict):
+    if batch is None or "cls" not in batch:
+        return
+    raw_cls = batch["cls"]
+    raw_cls = raw_cls.long()
+    is_two_digit_spec = raw_cls >= 100
+    base = torch.where(
+        is_two_digit_spec,
+        raw_cls // 100,
+        raw_cls // 10,
+    )
+    
+    spec = torch.where(
+        is_two_digit_spec,
+        raw_cls % 100,
+        raw_cls % 10,
+    )
+    valid_cls = spec
+    mask_base1_missing = (spec == 25) & (base == 1)
+    mask_other_missing = (spec == 25) & (base != 1)
+    # !?注注?!
+    # 牛大了 得处理一下 
+    # 不行得删除所有无小类的飞机 无小类船勉强能留着
+    # 这里将缺失标签的船置为民船 将缺失标签的飞机置为0（这是个严重的错误）
+    valid_cls[mask_base1_missing] = 3
+    valid_cls[mask_other_missing] = 0
+    batch["cls"] = valid_cls

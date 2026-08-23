@@ -86,6 +86,9 @@ from .head import (
     Pose,
     Pose26,
     RTDETRDecoder,
+    # !?注注?!
+    # 还有几处注册的地方 直接搜类名应该能搜到
+    MyRTDETRDecoder,
     Segment,
     Segment26,
     SemanticSegment,
@@ -99,6 +102,7 @@ from .transformer import (
     AIFI,
     MLP,
     DeformableTransformerDecoder,
+    MyDeformableTransformerDecoder,
     DeformableTransformerDecoderLayer,
     LayerNorm2d,
     MLPBlock,
@@ -152,6 +156,7 @@ __all__ = (
     "DWConv",
     "DWConvTranspose2d",
     "DeformableTransformerDecoder",
+    "MyDeformableTransformerDecoder",
     "DeformableTransformerDecoderLayer",
     "Detect",
     "MultiDetect",
@@ -172,6 +177,7 @@ __all__ = (
     "Pose26",
     "Proto",
     "RTDETRDecoder",
+    "MyRTDETRDecoder",
     "RepC3",
     "RepConv",
     "RepNCSPELAN4",

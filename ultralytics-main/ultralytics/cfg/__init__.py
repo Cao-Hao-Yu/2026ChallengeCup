@@ -266,6 +266,7 @@ CFG_BOOL_KEYS = frozenset(
         "plots",
         "show",
         "save_txt",
+        "save_json",
         "save_conf",
         "save_crop",
         "save_frames",

@@ -67,6 +67,7 @@ from ultralytics.nn.modules import (
     RepVGGDW,
     ResNetLayer,
     RTDETRDecoder,
+    MyRTDETRDecoder,
     SCDown,
     Segment,
     Segment26,
@@ -852,31 +853,74 @@ class RTDETRDetectionModel(DetectionModel):
         m.valid_mask = fn(m.valid_mask)
         return self
 
+    # def init_criterion(self):
+    #     """Initialize the loss criterion for the RTDETRDetectionModel."""
+    #     from ultralytics.models.utils.loss import RTDETRDetectionLoss
+
+    #     return RTDETRDetectionLoss(nc=self.nc, use_vfl=True)
+
+    # def loss(self, batch, preds=None):
+    #     """Compute the loss for the given batch of data.
+
+    #     Args:
+    #         batch (dict): Dictionary containing image and label data.
+    #         preds (tuple, optional): Precomputed model predictions.
+
+    #     Returns:
+    #         (torch.Tensor): Total loss value.
+    #         (torch.Tensor): Main three losses in a tensor.
+    #     """
+    #     if not hasattr(self, "criterion"):
+    #         self.criterion = self.init_criterion()
+
+    #     img = batch["img"]
+    #     # NOTE: preprocess gt_bbox and gt_labels to list.
+    #     bs = img.shape[0]
+    #     batch_idx = batch["batch_idx"]
+    #     gt_groups = [(batch_idx == i).sum().item() for i in range(bs)]
+    #     targets = {
+    #         "cls": batch["cls"].to(img.device, dtype=torch.long).view(-1),
+    #         "bboxes": batch["bboxes"].to(device=img.device),
+    #         "batch_idx": batch_idx.to(img.device, dtype=torch.long).view(-1),
+    #         "gt_groups": gt_groups,
+    #     }
+
+    #     if preds is None:
+    #         preds = self.predict(img, batch=targets)
+    #     dec_bboxes, dec_scores, enc_bboxes, enc_scores, dn_meta = preds if self.training else preds[1]
+    #     if dn_meta is None:
+    #         dn_bboxes, dn_scores = None, None
+    #     else:
+    #         dn_bboxes, dec_bboxes = torch.split(dec_bboxes, dn_meta["dn_num_split"], dim=2)
+    #         dn_scores, dec_scores = torch.split(dec_scores, dn_meta["dn_num_split"], dim=2)
+
+    #     dec_bboxes = torch.cat([enc_bboxes.unsqueeze(0), dec_bboxes])  # (7, bs, 300, 4)
+    #     dec_scores = torch.cat([enc_scores.unsqueeze(0), dec_scores])
+
+    #     loss = self.criterion(
+    #         (dec_bboxes, dec_scores), targets, dn_bboxes=dn_bboxes, dn_scores=dn_scores, dn_meta=dn_meta
+    #     )
+    #     # NOTE: There are like 12 losses in RTDETR, backward with all losses but only show the main three losses.
+    #     return sum(loss.values()), torch.as_tensor(
+    #         [loss[k].detach() for k in ["loss_giou", "loss_class", "loss_bbox"]], device=img.device
+    #     )
+    
+    # !?注注?!
+    # 上面是原来的代码
     def init_criterion(self):
-        """Initialize the loss criterion for the RTDETRDetectionModel."""
         from ultralytics.models.utils.loss import RTDETRDetectionLoss
 
-        return RTDETRDetectionLoss(nc=self.nc, use_vfl=True)
+        return RTDETRDetectionLoss(nc=25, nbc=3, use_vfl=True)
 
     def loss(self, batch, preds=None):
-        """Compute the loss for the given batch of data.
-
-        Args:
-            batch (dict): Dictionary containing image and label data.
-            preds (tuple, optional): Precomputed model predictions.
-
-        Returns:
-            (torch.Tensor): Total loss value.
-            (torch.Tensor): Main three losses in a tensor.
-        """
         if not hasattr(self, "criterion"):
             self.criterion = self.init_criterion()
 
         img = batch["img"]
-        # NOTE: preprocess gt_bbox and gt_labels to list.
         bs = img.shape[0]
         batch_idx = batch["batch_idx"]
         gt_groups = [(batch_idx == i).sum().item() for i in range(bs)]
+        
         targets = {
             "cls": batch["cls"].to(img.device, dtype=torch.long).view(-1),
             "bboxes": batch["bboxes"].to(device=img.device),
@@ -886,24 +930,46 @@ class RTDETRDetectionModel(DetectionModel):
 
         if preds is None:
             preds = self.predict(img, batch=targets)
-        dec_bboxes, dec_scores, enc_bboxes, enc_scores, dn_meta = preds if self.training else preds[1]
-        if dn_meta is None:
-            dn_bboxes, dn_scores = None, None
+            
+        if self.training:
+            dec_bboxes, dec_scores, enc_bboxes, enc_scores, enc_base_scores, dec_base_scores, dn_meta = preds
         else:
-            dn_bboxes, dec_bboxes = torch.split(dec_bboxes, dn_meta["dn_num_split"], dim=2)
-            dn_scores, dec_scores = torch.split(dec_scores, dn_meta["dn_num_split"], dim=2)
+            detailed_preds = preds[1] 
+            dec_bboxes, dec_scores, enc_bboxes, enc_scores, enc_base_scores, dec_base_scores, dn_meta = detailed_preds
 
-        dec_bboxes = torch.cat([enc_bboxes.unsqueeze(0), dec_bboxes])  # (7, bs, 300, 4)
-        dec_scores = torch.cat([enc_scores.unsqueeze(0), dec_scores])
+        if dn_meta is None:
+            dn_bboxes, dn_scores, dn_base = None, None, None
+        else:
+            num_denoising = dn_meta["dn_num_split"]
 
+            dn_bboxes, dec_bboxes = torch.split(dec_bboxes, num_denoising, 2)
+            dn_scores, dec_scores = torch.split(dec_scores, num_denoising, 2)
+            dn_base, dec_base_scores = torch.split(dec_base_scores, num_denoising, 2)
+
+            dn_bboxes = dn_bboxes[-1]
+            dn_scores = dn_scores[-1]
+            dn_base   = dn_base[-1]
+
+            _, enc_bboxes = torch.split(enc_bboxes, num_denoising, 1)
+            _, enc_scores = torch.split(enc_scores, num_denoising, 1)
+            _, enc_base_scores = torch.split(enc_base_scores, num_denoising, 1)
+
+        all_bboxes = torch.cat([enc_bboxes.unsqueeze(0), dec_bboxes], dim=0)
+        all_scores = torch.cat([enc_scores.unsqueeze(0), dec_scores], dim=0)
+        all_base_scores = torch.cat([enc_base_scores.unsqueeze(0), dec_base_scores], dim=0)
+
+        loss_inputs = (all_bboxes, all_scores, all_base_scores)
+        
         loss = self.criterion(
-            (dec_bboxes, dec_scores), targets, dn_bboxes=dn_bboxes, dn_scores=dn_scores, dn_meta=dn_meta
+            loss_inputs, targets, dn_bboxes=dn_bboxes, dn_scores=dn_scores, dn_meta=dn_meta
         )
-        # NOTE: There are like 12 losses in RTDETR, backward with all losses but only show the main three losses.
+        
         return sum(loss.values()), torch.as_tensor(
-            [loss[k].detach() for k in ["loss_giou", "loss_class", "loss_bbox"]], device=img.device
+            [loss[k].detach() for k in ["loss_giou", "loss_class", "loss_bbox", "loss_base_class"] if k in loss], 
+            device=img.device
         )
-
+    # !?注注?!
+    # 下面是原本代码未修改
     def predict(self, x, profile=False, visualize=False, batch=None, augment=False, embed=None):
         """Perform a forward pass through the model.
 
@@ -1966,6 +2032,10 @@ def parse_model(d, ch, verbose=True):
             args.insert(1, [ch[x] for x in f])  # channels as second arg
         elif m is RTDETRDecoder:  # special case, channels arg must be passed in index 1
             args.insert(1, [ch[x] for x in f])
+        elif m is MyRTDETRDecoder:  # special case, channels arg must be passed in index 1
+            args.insert(1, [ch[x] for x in f])
+            # args.append(*args[2:])
+            # fuck 解析代码有错不会修
         elif m is CBLinear:
             c2 = args[0]
             c1 = ch[f]

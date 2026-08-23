@@ -52,7 +52,7 @@ from ultralytics.cfg import get_cfg, get_save_dir
 from ultralytics.data import load_inference_source
 from ultralytics.data.augment import LetterBox
 from ultralytics.nn.autobackend import AutoBackend
-from ultralytics.utils import DEFAULT_CFG, LOGGER, MACOS, WINDOWS, callbacks, colorstr, ops
+from ultralytics.utils import DEFAULT_CFG, LOGGER, MACOS, WINDOWS, callbacks, colorstr, ops, nms
 from ultralytics.utils.checks import check_imgsz, check_imshow
 from ultralytics.utils.files import increment_path
 from ultralytics.utils.torch_utils import attempt_compile, select_device, smart_inference_mode
@@ -150,41 +150,146 @@ class BasePredictor:
         self.callbacks = _callbacks or callbacks.get_default_callbacks()
         self.txt_path = None
         self._lock = threading.Lock()  # for automatic thread-safe inference
+
+        # 切片大小 重叠大小 切片分批大小（用来控制显存的）
+        self.tile_size = 960
+        self.overlap = 256
+        self.sub_batch_size = 16
+        self.jdict = []
+
         callbacks.add_integration_callbacks(self)
 
-    def preprocess(self, im: torch.Tensor | list[np.ndarray]) -> torch.Tensor:
-        """Prepare input image before inference.
+    # 保证最后一块不会切的特别小
+    @staticmethod
+    def _get_tile_starts(length: int, tile_size: int, overlap: int) -> list[int]:
+        if length <= tile_size:
+            return [0]
 
-        Args:
-            im (torch.Tensor | list[np.ndarray]): Images of shape (N, 3, H, W) for tensor, [(H, W, 3) x N] for list.
+        step = tile_size - overlap
+        starts = list(range(0, length - tile_size + 1, step))
+        last_start = length - tile_size
 
-        Returns:
-            (torch.Tensor): Preprocessed image tensor of shape (N, 3, H, W).
-        """
-        not_tensor = not isinstance(im, torch.Tensor)
-        if not_tensor:
-            im = np.stack(self.pre_transform(im))
-            if im.shape[-1] == 3:
-                im = im[..., ::-1]  # BGR to RGB
-            im = im.transpose((0, 3, 1, 2))  # BHWC to BCHW, (n, 3, h, w)
-            im = np.ascontiguousarray(im)  # contiguous
-            im = torch.from_numpy(im)
+        if starts[-1] != last_start:
+            starts.append(last_start)
 
-        im = im.to(self.device)
-        im = im.half() if self.model.fp16 else im.float()  # uint8 to fp16/32
-        if not_tensor:
-            im /= 255  # 0 - 255 to 0.0 - 1.0
-        return im
+        return starts
 
-    def inference(self, im: torch.Tensor, *args, **kwargs):
-        """Run inference on a given image using the specified model and arguments."""
-        visualize = (
-            increment_path(self.save_dir / Path(self.batch[0][0]).stem, mkdir=True)
-            if self.args.visualize and (not self.source_type.tensor)
-            else False
-        )
-        return self.model(im, augment=self.args.augment, visualize=visualize, embed=self.args.embed, *args, **kwargs)
+    # def preprocess(self, im: torch.Tensor | list[np.ndarray]) -> torch.Tensor:
+    #     """Prepare input image before inference.
 
+    #     Args:
+    #         im (torch.Tensor | list[np.ndarray]): Images of shape (N, 3, H, W) for tensor, [(H, W, 3) x N] for list.
+
+    #     Returns:
+    #         (torch.Tensor): Preprocessed image tensor of shape (N, 3, H, W).
+    #     """
+    #     not_tensor = not isinstance(im, torch.Tensor)
+    #     if not_tensor:
+    #         im = np.stack(self.pre_transform(im))
+    #         if im.shape[-1] == 3:
+    #             im = im[..., ::-1]  # BGR to RGB
+    #         im = im.transpose((0, 3, 1, 2))  # BHWC to BCHW, (n, 3, h, w)
+    #         im = np.ascontiguousarray(im)  # contiguous
+    #         im = torch.from_numpy(im)
+
+    #     im = im.to(self.device)
+    #     im = im.half() if self.model.fp16 else im.float()  # uint8 to fp16/32
+    #     if not_tensor:
+    #         im /= 255  # 0 - 255 to 0.0 - 1.0
+    #     return im
+    
+    def preprocess(self, im):
+        if not isinstance(im, list):
+            im = ops.convert_torch2numpy_batch(im)
+
+        orig_img = im[0]
+        h, w = orig_img.shape[:2]
+
+        crops = []
+        offsets = []
+        crop_shapes = []
+
+        y_starts = self._get_tile_starts(h, self.tile_size, self.overlap)
+        x_starts = self._get_tile_starts(w, self.tile_size, self.overlap)
+
+        for y1 in y_starts:
+            for x1 in x_starts:
+                x2, y2 = x1 + self.tile_size, y1 + self.tile_size
+
+                crop = orig_img[y1:y2, x1:x2]
+
+                crops.append(crop)
+                offsets.append((x1, y1))
+                crop_shapes.append(crop.shape)
+
+        self._orig_img = orig_img
+        self._offsets = offsets
+        self._crop_shapes = crop_shapes
+
+        # LetterBox
+        crops = np.stack(self.pre_transform(crops))
+
+        # BGR => RGB
+        if crops.shape[-1] == 3:
+            crops = crops[..., ::-1]
+
+        # BHWC => BCHW
+        crops = crops.transpose((0, 3, 1, 2))
+        crops = np.ascontiguousarray(crops)
+        crops = torch.from_numpy(crops)
+
+        crops = crops.to(self.device)
+        crops = crops.half() if self.model.fp16 else crops.float()
+        crops /= 255
+
+        return crops
+    
+    # def inference(self, im: torch.Tensor, *args, **kwargs):
+    #     """Run inference on a given image using the specified model and arguments."""
+    #     visualize = (
+    #         increment_path(self.save_dir / Path(self.batch[0][0]).stem, mkdir=True)
+    #         if self.args.visualize and (not self.source_type.tensor)
+    #         else False
+    #     )
+    #     return self.model(im, augment=self.args.augment, visualize=visualize, embed=self.args.embed, *args, **kwargs)
+
+    # 分批进入gpu（控制显存） 对小batch执行nms
+    def inference(self, im, *args, **kwargs):
+        num_tiles = im.shape[0]
+        all_preds = []
+        
+        # 获取 nms 参数
+        iou_thres = kwargs.pop("iou", self.args.iou)
+        classes = self.args.classes
+        agnostic = self.args.agnostic_nms
+        max_det = self.args.max_det
+        nc = len(self.model.names)
+        
+        for i in range(0, num_tiles, self.sub_batch_size):
+            batch_im = im[i : i + self.sub_batch_size]
+            
+            with torch.no_grad():
+                batch_preds = self.model(batch_im, augment=self.args.augment, visualize=False, embed=self.args.embed)
+                
+            # 立即对小 batch 进行 nms 处理
+            batch_preds = nms.non_max_suppression(
+                batch_preds, 
+                self.args.conf, 
+                iou_thres, 
+                classes, 
+                agnostic, 
+                max_det=max_det, 
+                nc=nc
+            )
+            
+            # 将 nms 后的结果移回 cpu 释放显存
+            # 但这会导致大图占用比较多的cpu内存
+            for pred in batch_preds:
+                all_preds.append(pred.cpu() if isinstance(pred, torch.Tensor) else pred)
+                
+        # 并且还会在cpu里面存在一个非常大的tensor
+        return all_preds
+    
     def pre_transform(self, im: list[np.ndarray]) -> list[np.ndarray]:
         """Pre-transform input image before inference.
 
@@ -303,8 +408,8 @@ class BasePredictor:
             self.setup_source(source if source is not None else self.args.source)
 
             # Check if save_dir/ label file exists
-            if self.args.save or self.args.save_txt:
-                (self.save_dir / "labels" if self.args.save_txt else self.save_dir).mkdir(parents=True, exist_ok=True)
+            if self.args.save or self.args.save_txt or self.args.save_json:
+                (self.save_dir / "labels" if (self.args.save_txt or self.args.save_json) else self.save_dir).mkdir(parents=True, exist_ok=True)
 
             # Warmup model
             if not self.done_warmup:
@@ -355,7 +460,7 @@ class BasePredictor:
                             "inference": profilers[1].dt * 1e3 / n,
                             "postprocess": profilers[2].dt * 1e3 / n,
                         }
-                        if self.args.verbose or self.args.save or self.args.save_txt or self.args.show:
+                        if self.args.verbose or self.args.save or self.args.save_txt or self.args.show or self.args.save_json:
                             s[i] += self.write_results(i, Path(paths[i]), im, s)
                 except StopIteration:
                     break
@@ -378,14 +483,26 @@ class BasePredictor:
         # Print final results
         if self.args.verbose and self.seen:
             t = tuple(x.t / self.seen * 1e3 for x in profilers)  # speeds per image
+            # LOGGER.info(
+            #     f"Speed: %.1fms preprocess, %.1fms inference, %.1fms postprocess per image at shape "
+            #     f"{(min(self.args.batch, self.seen), getattr(self.model, 'channels', 3), *im.shape[2:])}" % t
+            # )
             LOGGER.info(
-                f"Speed: %.1fms preprocess, %.1fms inference, %.1fms postprocess per image at shape "
-                f"{(min(self.args.batch, self.seen), getattr(self.model, 'channels', 3), *im.shape[2:])}" % t
+                f"Average Speed: %.1fms preprocess, %.1fms inference, %.1fms postprocess per image" % t
             )
         if self.args.save or self.args.save_txt or self.args.save_crop:
             nl = len(list(self.save_dir.glob("labels/*.txt")))  # number of labels
             s = f"\n{nl} label{'s' * (nl > 1)} saved to {self.save_dir / 'labels'}" if self.args.save_txt else ""
             LOGGER.info(f"Results saved to {colorstr('bold', self.save_dir)}{s}")
+
+        if self.args.save_json and self.jdict:
+            import json
+            # 保存到 json
+            json_path = self.save_dir / "labels/predictions.json"
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(self.jdict, f, indent=4)
+            print(f"COCO JSON results saved to {json_path}")   
+
         self.run_callbacks("on_predict_end")
 
     def setup_model(self, model, verbose: bool = True):
@@ -458,6 +575,8 @@ class BasePredictor:
         # Save results
         if self.args.save_txt:
             result.save_txt(f"{self.txt_path}.txt", save_conf=self.args.save_conf)
+        if self.args.save_json:
+            self.save_prediction_json(result=result, p=p)
         if self.args.save_crop:
             result.save_crop(save_dir=self.save_dir / "crops", file_name=self.txt_path.stem)
         if self.args.show:
@@ -466,6 +585,27 @@ class BasePredictor:
             self.save_predicted_images(self.save_dir / p.name, frame)
 
         return string
+
+    def save_prediction_json(self, result, p):
+        if result.boxes is not None and len(result.boxes) > 0:
+            stem = p.stem
+            image_id = int(stem) if stem.isnumeric() else stem 
+
+            # 由xyxy转成左上宽高 像素坐标
+            box = ops.xyxy2xywh(result.boxes.xyxy)
+            box[:, :2] -= box[:, 2:] / 2
+
+            confs = result.boxes.conf.tolist()
+            clss = result.boxes.cls.tolist()
+
+            for b, s, c in zip(box.tolist(), confs, clss):
+                self.jdict.append({
+                    "image_id": image_id,
+                    "file_name": p.name,
+                    "category_id": self.class_map[int(c)] if hasattr(self, 'class_map') else int(c), # 如果没有 class_map 直接存 id
+                    "bbox": [round(x, 3) for x in b],
+                    "score": round(s, 5)
+                })
 
     def save_predicted_images(self, save_path: Path, frame: int = 0):
         """Save video predictions as mp4/avi or images as jpg at specified path.

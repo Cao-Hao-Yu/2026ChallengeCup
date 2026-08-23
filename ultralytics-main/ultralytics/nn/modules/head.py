@@ -17,15 +17,17 @@ from ultralytics.utils.torch_utils import TORCH_1_11, fuse_conv_and_bn, smart_in
 
 from .block import DFL, SAVPE, BNContrastiveHead, ContrastiveHead, Proto, Proto26, RealNVP, Residual, SwiGLUFFN
 from .conv import Conv, DWConv
-from .transformer import MLP, DeformableTransformerDecoder, DeformableTransformerDecoderLayer
+from .transformer import MLP, DeformableTransformerDecoder, DeformableTransformerDecoderLayer, MyDeformableTransformerDecoder
 from .utils import bias_init_with_prob, linear_init
 
 __all__ = (
     "OBB",
     "Classify",
     "Detect",
+    "MultiDetect"
     "Pose",
     "RTDETRDecoder",
+    "MyRTDETRDecoder",
     "Segment",
     "SemanticSegment",
     "YOLOEDetect",
@@ -1862,6 +1864,207 @@ class RTDETRDecoder(nn.Module):
         for layer in self.input_proj:
             xavier_uniform_(layer[0].weight)
 
+# !?注注?!
+# 上面是yolo的检测头修改
+class MyRTDETRDecoder(RTDETRDecoder):
+    export = False  # export mode
+    shapes = []
+    anchors = torch.empty(0)
+    valid_mask = torch.empty(0)
+    dynamic = False
+
+    def __init__(
+        self,
+        nc: int = 25,
+        ch: tuple = (512, 1024, 2048),
+        hd: int = 256,  # hidden dim
+        nq: int = 300,  # num queries
+        ndp: int = 4,  # num decoder points
+        nh: int = 8,  # num head
+        ndl: int = 6,  # num decoder layers
+        d_ffn: int = 1024,  # dim of feedforward
+        dropout: float = 0.0,
+        act: nn.Module = nn.ReLU(),
+        eval_idx: int = -1,
+        # Training args
+        nd: int = 100,  # num denoising
+        label_noise_ratio: float = 0.5,
+        box_noise_scale: float = 1.0,
+        learnt_init_query: bool = False,
+        nbc: int = 3
+    ):
+        super().__init__(
+            nc=nc, 
+            ch=ch, 
+            hd=hd, 
+            nq=nq, 
+            ndp=ndp, 
+            nh=nh, 
+            ndl=ndl, 
+            d_ffn=d_ffn, 
+            dropout=dropout, 
+            act=act, 
+            eval_idx=eval_idx, 
+            nd=nd, 
+            label_noise_ratio=label_noise_ratio, 
+            box_noise_scale=box_noise_scale, 
+            learnt_init_query=learnt_init_query
+        )
+        # 模型初始化解析有问题 
+        # 在task里面修 不会修
+        self.nbc = nbc
+
+        # Backbone feature projection
+        self.input_proj = nn.ModuleList(nn.Sequential(nn.Conv2d(x, hd, 1, bias=False), nn.BatchNorm2d(hd)) for x in ch)
+        # NOTE: simplified version but it's not consistent with .pt weights.
+        # self.input_proj = nn.ModuleList(Conv(x, hd, act=False) for x in ch)
+
+        # Transformer module
+        decoder_layer = DeformableTransformerDecoderLayer(hd, nh, d_ffn, dropout, act, self.nl, ndp)
+        self.decoder = MyDeformableTransformerDecoder(hd, decoder_layer, ndl, eval_idx)
+
+        # Denoising part
+        self.denoising_class_embed = nn.Embedding(nc, hd)
+        self.num_denoising = nd
+        self.label_noise_ratio = label_noise_ratio
+        self.box_noise_scale = box_noise_scale
+
+        # Decoder embedding
+        self.learnt_init_query = learnt_init_query
+        if learnt_init_query:
+            self.tgt_embed = nn.Embedding(nq, hd)
+        self.query_pos_head = MLP(4, 2 * hd, hd, num_layers=2)
+
+        # Encoder head
+        self.enc_output = nn.Sequential(nn.Linear(hd, hd), nn.LayerNorm(hd))
+        self.enc_score_head = nn.Linear(hd, nc)
+        self.enc_base_score_head = nn.Linear(hd, nbc)
+        self.enc_bbox_head = MLP(hd, hd, 4, num_layers=3)
+
+        # Decoder head
+        self.dec_score_head = nn.ModuleList([nn.Linear(hd, nc) for _ in range(ndl)])
+        self.dec_base_score_head = nn.ModuleList([nn.Linear(hd, nbc) for _ in range(ndl)])
+        self.dec_bbox_head = nn.ModuleList([MLP(hd, hd, 4, num_layers=3) for _ in range(ndl)])
+
+        self.my_reset_parameters()
+
+    def forward(self, x: list[torch.Tensor], batch: dict | None = None) -> tuple | torch.Tensor:
+        from ultralytics.models.utils.ops import get_cdn_group
+
+        # Input projection and embedding
+        feats, shapes = self._get_encoder_input(x)
+
+        # Prepare denoising training
+        dn_embed, dn_bbox, attn_mask, dn_meta = get_cdn_group(
+            batch,
+            self.nc,
+            self.num_queries,
+            self.denoising_class_embed.weight,
+            self.num_denoising,
+            self.label_noise_ratio,
+            self.box_noise_scale,
+            self.training,
+        )
+
+        embed, refer_bbox, enc_bboxes, enc_scores, enc_base_scores = self._get_decoder_input(feats, shapes, dn_embed, dn_bbox)
+
+        # Decoder
+        decoder_outputs = self.decoder(
+            embed,
+            refer_bbox,
+            feats,
+            shapes,
+            self.dec_bbox_head,
+            self.dec_score_head,
+            self.query_pos_head,
+            attn_mask=attn_mask,
+            base_score_head=self.dec_base_score_head,
+        )
+        if self.training and dn_meta is None:
+            # Touch denoising_class_embed so DDP sees it as used when batch has zero GTs.
+            dec_bboxes = dec_bboxes + 0 * self.denoising_class_embed.weight.sum()
+        if self.training:
+            # 如果是训练就解包出3个值
+            dec_bboxes, dec_scores, dec_base_scores = decoder_outputs
+            x = dec_bboxes, dec_scores, enc_bboxes, enc_scores, enc_base_scores, dec_base_scores, dn_meta
+            return x
+        else:
+            dec_bboxes, dec_scores = decoder_outputs
+            y = self.postprocess(dec_bboxes.squeeze(0), dec_scores.squeeze(0).sigmoid())
+            return y if self.export else (y, x)
+
+    def _get_decoder_input(
+        self,
+        feats: torch.Tensor,
+        shapes: list[list[int]],
+        dn_embed: torch.Tensor | None = None,
+        dn_bbox: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        bs = feats.shape[0]
+        if self.dynamic or self.shapes != shapes:
+            self.anchors, self.valid_mask = self._generate_anchors(shapes, dtype=feats.dtype, device=feats.device)
+            self.shapes = shapes
+
+        # Prepare input for decoder
+        features = self.enc_output(self.valid_mask * feats)  # bs, h*w, 256
+        enc_outputs_scores = self.enc_score_head(features)  # (bs, h*w, nc)
+        enc_outputs_base_scores = self.enc_base_score_head(features) # (bs, h*w, nbc)
+
+        # Query selection
+        # (bs*num_queries,)
+        topk_ind = torch.topk(enc_outputs_scores.max(-1).values, self.num_queries, dim=1).indices.view(-1)
+        # (bs*num_queries,)
+        batch_ind = torch.arange(end=bs, dtype=topk_ind.dtype).unsqueeze(-1).repeat(1, self.num_queries).view(-1)
+
+        # (bs, num_queries, 256)
+        top_k_features = features[batch_ind, topk_ind].view(bs, self.num_queries, -1)
+        # (bs, num_queries, 4)
+        top_k_anchors = self.anchors[:, topk_ind].view(bs, self.num_queries, -1)
+
+        # Dynamic anchors + static content
+        refer_bbox = self.enc_bbox_head(top_k_features) + top_k_anchors
+
+        enc_bboxes = refer_bbox.sigmoid()
+        if dn_bbox is not None:
+            refer_bbox = torch.cat([dn_bbox, refer_bbox], 1)
+        enc_scores = enc_outputs_scores[batch_ind, topk_ind].view(bs, self.num_queries, -1)
+        enc_base_scores = enc_outputs_base_scores[batch_ind, topk_ind].view(bs, self.num_queries, -1)
+
+        embeddings = self.tgt_embed.weight.unsqueeze(0).repeat(bs, 1, 1) if self.learnt_init_query else top_k_features
+        if self.training:
+            refer_bbox = refer_bbox.detach()
+            if not self.learnt_init_query:
+                embeddings = embeddings.detach()
+        if dn_embed is not None:
+            embeddings = torch.cat([dn_embed, embeddings], 1)
+
+        return embeddings, refer_bbox, enc_bboxes, enc_scores, enc_base_scores
+
+    def my_reset_parameters(self):
+        # Class and bbox head init
+        bias_cls = bias_init_with_prob(0.01) / 80 * self.nc
+        bias_base = bias_init_with_prob(0.01) / 80 * self.nbc
+        # NOTE: the weight initialization in `linear_init` would cause NaN when training with custom datasets.
+        # linear_init(self.enc_score_head)
+        constant_(self.enc_score_head.bias, bias_cls)
+        constant_(self.enc_base_score_head.bias, bias_base)
+        constant_(self.enc_bbox_head.layers[-1].weight, 0.0)
+        constant_(self.enc_bbox_head.layers[-1].bias, 0.0)
+        for cls_, reg_, bcls_ in zip(self.dec_score_head, self.dec_bbox_head, self.dec_base_score_head):
+            # linear_init(cls_)
+            constant_(cls_.bias, bias_cls)
+            constant_(reg_.layers[-1].weight, 0.0)
+            constant_(reg_.layers[-1].bias, 0.0)
+            constant_(bcls_.bias, bias_base) 
+
+        linear_init(self.enc_output[0])
+        xavier_uniform_(self.enc_output[0].weight)
+        if self.learnt_init_query:
+            xavier_uniform_(self.tgt_embed.weight)
+        xavier_uniform_(self.query_pos_head.layers[0].weight)
+        xavier_uniform_(self.query_pos_head.layers[1].weight)
+        for layer in self.input_proj:
+            xavier_uniform_(layer[0].weight)
 
 class v10Detect(Detect):
     """v10 Detection head from https://arxiv.org/pdf/2405.14458.

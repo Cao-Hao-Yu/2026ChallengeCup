@@ -19,6 +19,7 @@ __all__ = (
     "AIFI",
     "MLP",
     "DeformableTransformerDecoder",
+    "MyDeformableTransformerDecoder",
     "DeformableTransformerDecoderLayer",
     "LayerNorm2d",
     "MLPBlock",
@@ -798,3 +799,60 @@ class DeformableTransformerDecoder(nn.Module):
             refer_bbox = refined_bbox.detach() if self.training else refined_bbox
 
         return torch.stack(dec_bboxes), torch.stack(dec_cls)
+
+# !?注注?!
+# 基本copy自上面那个
+class MyDeformableTransformerDecoder(nn.Module):
+    def __init__(self, hidden_dim: int, decoder_layer: nn.Module, num_layers: int, eval_idx: int = -1):
+        super().__init__()
+        self.layers = _get_clones(decoder_layer, num_layers)
+        self.num_layers = num_layers
+        self.hidden_dim = hidden_dim
+        self.eval_idx = eval_idx if eval_idx >= 0 else num_layers + eval_idx
+
+    def forward(
+        self,
+        embed: torch.Tensor,
+        refer_bbox: torch.Tensor,
+        feats: torch.Tensor,
+        shapes: list,
+        bbox_head: nn.Module,
+        score_head: nn.Module,
+        pos_mlp: nn.Module,
+        attn_mask: torch.Tensor | None = None,
+        padding_mask: torch.Tensor | None = None,
+        base_score_head: nn.Module | None = None,
+    ):
+        output = embed
+        dec_bboxes = []
+        dec_cls = []
+        dec_base_cls = []
+        last_refined_bbox = None
+        refer_bbox = refer_bbox.sigmoid()
+        
+        for i, layer in enumerate(self.layers):
+            output = layer(output, refer_bbox, feats, shapes, padding_mask, attn_mask, pos_mlp(refer_bbox))
+
+            bbox = bbox_head[i](output)
+            refined_bbox = torch.sigmoid(bbox + inverse_sigmoid(refer_bbox))
+
+            if self.training:
+                dec_cls.append(score_head[i](output))
+                dec_base_cls.append(base_score_head[i](output))
+                if i == 0:
+                    dec_bboxes.append(refined_bbox)
+                else:
+                    dec_bboxes.append(torch.sigmoid(bbox + inverse_sigmoid(last_refined_bbox)))  
+            elif i == self.eval_idx:
+                dec_cls.append(score_head[i](output))
+                dec_bboxes.append(refined_bbox)
+                break
+
+            last_refined_bbox = refined_bbox
+            refer_bbox = refined_bbox.detach() if self.training else refined_bbox
+
+        if self.training:
+            return torch.stack(dec_bboxes), torch.stack(dec_cls), torch.stack(dec_base_cls)
+        else:
+            return torch.stack(dec_bboxes), torch.stack(dec_cls)
+
