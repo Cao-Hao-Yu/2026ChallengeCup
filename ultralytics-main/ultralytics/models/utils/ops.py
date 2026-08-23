@@ -341,6 +341,7 @@ def _fix_labels(batch: dict):
     mask_base1_missing = (spec == 25) & (base == 1)
     mask_other_missing = (spec == 25) & (base != 1)
     # !?注注?!
+    # 这是 rtdetr 的坑
     # 牛大了 得处理一下 
     # 不行得删除所有无小类的飞机 无小类船勉强能留着
     # 这里将缺失标签的船置为民船 将缺失标签的飞机置为0（这是个严重的错误）

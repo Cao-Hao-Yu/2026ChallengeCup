@@ -80,7 +80,11 @@ class DetectionPredictor(BasePredictor):
     #             r.feats = f  # add object features to results
 
     #     return results
-    
+        
+    # !?注注?!
+    # 重写原来的推理代码，执行切片推理
+    # nms 比较简陋 从可视化图上看有很大改进空间 （有改进空间的也可能是模型）
+
     def postprocess(self, preds, img, orig_imgs, **kwargs):
         all_preds = []
 

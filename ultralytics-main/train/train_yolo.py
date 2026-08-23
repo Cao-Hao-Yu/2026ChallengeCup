@@ -11,28 +11,30 @@ from ultralytics.utils import DEFAULT_CFG
 
 # 加载预训练权重好像没什么用
 
+# 如果单个 epoch 训练时间异常长可能是 batch_size 大了
+
 if __name__ == "__main__":
     DEFAULT_CFG.save_dir = r"./runs/new_dataset/temp"
 
     model = YOLO(model=r"models/yolo_test.yaml")
     # 注掉以下代码即可不加载预训练权重
-    ckpt = torch.load(r"models/yolov8n.pt", map_location="cpu", weights_only=False)
-    pretrained_state_dict = ckpt["model"].state_dict() if "model" in ckpt else ckpt
-    model_state_dict = model.model.state_dict()
-    filtered_state_dict = {
-        k: v for k, v in pretrained_state_dict.items() 
-        if k in model_state_dict and v.shape == model_state_dict[k].shape
-    }
-    missing, unexpected = model.model.load_state_dict(filtered_state_dict, strict=False)
+    # ckpt = torch.load(r"models/yolov8n.pt", map_location="cpu", weights_only=False)
+    # pretrained_state_dict = ckpt["model"].state_dict() if "model" in ckpt else ckpt
+    # model_state_dict = model.model.state_dict()
+    # filtered_state_dict = {
+    #     k: v for k, v in pretrained_state_dict.items() 
+    #     if k in model_state_dict and v.shape == model_state_dict[k].shape
+    # }
+    # missing, unexpected = model.model.load_state_dict(filtered_state_dict, strict=False)
 
-    print(f"All weights: {len(pretrained_state_dict)}")
-    print(f"Filtered weights: {len(filtered_state_dict)}")
-    print(f"Missing keys: {len(missing)}") 
-    print(f"Unexpected keys: {len(unexpected)}")
+    # print(f"All weights: {len(pretrained_state_dict)}")
+    # print(f"Filtered weights: {len(filtered_state_dict)}")
+    # print(f"Missing keys: {len(missing)}") 
+    # print(f"Unexpected keys: {len(unexpected)}")
 
     model.train(
         data=r"./train/dataset.yaml",
-        epochs=5,
+        epochs=200,
         imgsz=960,
         batch=16,
         device=0

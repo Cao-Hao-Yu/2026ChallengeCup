@@ -327,4 +327,10 @@ def evaluate():
     validator.print_results()
 
 if __name__ == "__main__":
+    # !?注注?!
+    # 注意这里使用的 txt 标签会经过解析 （混合标签和原始标签应该得到结果是一样的）
+    # 用来验证切片推理得到的结果 配套推理产生的 coco 格式 json 使用
+    # 读取 json gt_txt 进行计算 需要数据集图像用于提取图像尺寸
+    # 需要数据集为 yolo 标准数据集格式
+    # 如果官方提供不限次 json 评估接口 就不需要这个代码了
     evaluate()

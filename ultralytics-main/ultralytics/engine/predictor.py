@@ -151,6 +151,8 @@ class BasePredictor:
         self.txt_path = None
         self._lock = threading.Lock()  # for automatic thread-safe inference
 
+        # !?注注?!
+        # 切片配置
         # 切片大小 重叠大小 切片分批大小（用来控制显存的）
         self.tile_size = 960
         self.overlap = 256
@@ -281,7 +283,8 @@ class BasePredictor:
                 max_det=max_det, 
                 nc=nc
             )
-            
+
+            # !?注注?!
             # 将 nms 后的结果移回 cpu 释放显存
             # 但这会导致大图占用比较多的cpu内存
             for pred in batch_preds:
