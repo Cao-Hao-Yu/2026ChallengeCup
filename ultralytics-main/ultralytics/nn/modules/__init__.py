@@ -88,7 +88,7 @@ from .head import (
     RTDETRDecoder,
     # !?注注?!
     # 还有几处注册的地方 直接搜类名应该能搜到
-    MyRTDETRDecoder,
+    HierRTDETRDecoder,
     Segment,
     Segment26,
     SemanticSegment,
@@ -102,7 +102,6 @@ from .transformer import (
     AIFI,
     MLP,
     DeformableTransformerDecoder,
-    MyDeformableTransformerDecoder,
     DeformableTransformerDecoderLayer,
     LayerNorm2d,
     MLPBlock,
@@ -177,7 +176,7 @@ __all__ = (
     "Pose26",
     "Proto",
     "RTDETRDecoder",
-    "MyRTDETRDecoder",
+    "HierRTDETRDecoder",
     "RepC3",
     "RepConv",
     "RepNCSPELAN4",

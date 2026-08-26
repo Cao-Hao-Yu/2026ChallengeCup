@@ -17,7 +17,7 @@ from ultralytics.utils.torch_utils import TORCH_1_11, fuse_conv_and_bn, smart_in
 
 from .block import DFL, SAVPE, BNContrastiveHead, ContrastiveHead, Proto, Proto26, RealNVP, Residual, SwiGLUFFN
 from .conv import Conv, DWConv
-from .transformer import MLP, DeformableTransformerDecoder, DeformableTransformerDecoderLayer, MyDeformableTransformerDecoder
+from .transformer import MLP, DeformableTransformerDecoder, DeformableTransformerDecoderLayer
 from .utils import bias_init_with_prob, linear_init
 
 __all__ = (
@@ -27,7 +27,7 @@ __all__ = (
     "MultiDetect"
     "Pose",
     "RTDETRDecoder",
-    "MyRTDETRDecoder",
+    "HierRTDETRDecoder",
     "Segment",
     "SemanticSegment",
     "YOLOEDetect",
@@ -1587,6 +1587,11 @@ class RTDETRDecoder(nn.Module):
         label_noise_ratio: float = 0.5,
         box_noise_scale: float = 1.0,
         learnt_init_query: bool = False,
+        # ###RTDETR##### start
+        # 是否启用分层分类头；普通 RTDETRDecoder 默认 False，不影响原始模型。
+        hierarchical: bool = False,
+        nbc: int = 3,
+        # ###RTDETR##### end
     ):
         """Initialize the RTDETRDecoder module with the given parameters.
 
@@ -1612,6 +1617,11 @@ class RTDETRDecoder(nn.Module):
         self.nhead = nh
         self.nl = len(ch)  # num level
         self.nc = nc
+        # ###RTDETR##### start
+        # hierarchical=True 时额外训练大类分支，nbc 是大类数量。
+        self.hierarchical = hierarchical
+        self.nbc = nbc
+        # ###RTDETR##### end
         self.num_queries = nq
         self.num_decoder_layers = ndl
 
@@ -1626,6 +1636,11 @@ class RTDETRDecoder(nn.Module):
 
         # Denoising part
         self.denoising_class_embed = nn.Embedding(nc, hd)
+        # ###RTDETR##### start
+        # 缺失小类标签不能索引小类 embedding，分层版给 denoising 单独准备大类 embedding。
+        if self.hierarchical:
+            self.denoising_base_class_embed = nn.Embedding(self.nbc, hd)
+        # ###RTDETR##### end
         self.num_denoising = nd
         self.label_noise_ratio = label_noise_ratio
         self.box_noise_scale = box_noise_scale
@@ -1639,10 +1654,20 @@ class RTDETRDecoder(nn.Module):
         # Encoder head
         self.enc_output = nn.Sequential(nn.Linear(hd, hd), nn.LayerNorm(hd))
         self.enc_score_head = nn.Linear(hd, nc)
+        # ###RTDETR##### start
+        # encoder 阶段增加大类分类分支，用于辅助 query 选择和 encoder loss。
+        if self.hierarchical:
+            self.enc_base_score_head = nn.Linear(hd, self.nbc)
+        # ###RTDETR##### end
         self.enc_bbox_head = MLP(hd, hd, 4, num_layers=3)
 
         # Decoder head
         self.dec_score_head = nn.ModuleList([nn.Linear(hd, nc) for _ in range(ndl)])
+        # ###RTDETR##### start
+        # decoder 每层增加大类分类分支，和原始小类分支并行输出。
+        if self.hierarchical:
+            self.dec_base_score_head = nn.ModuleList([nn.Linear(hd, self.nbc) for _ in range(ndl)])
+        # ###RTDETR##### end
         self.dec_bbox_head = nn.ModuleList([MLP(hd, hd, 4, num_layers=3) for _ in range(ndl)])
 
         self._reset_parameters()
@@ -1659,27 +1684,53 @@ class RTDETRDecoder(nn.Module):
                 metadata. During inference, returns a tensor of shape (bs, num_queries, 6) containing bounding boxes,
                 confidence scores, and class labels.
         """
-        from ultralytics.models.utils.ops import get_cdn_group
-
         # Input projection and embedding
         feats, shapes = self._get_encoder_input(x)
 
-        # Prepare denoising training
+        from ultralytics.models.utils.ops import get_cdn_group
+
+        cdn_batch = batch
+        cdn_class_embed = self.denoising_class_embed.weight
+        cdn_num_classes = self.nc
+        # ###RTDETR##### start
+        # CDN indexes class embeddings directly, so feed valid spec ids and use base embeddings for missing spec ids.
+        if self.hierarchical and batch is not None and "cls" in batch:
+            raw_cls = batch["cls"].long()
+            is_three_digit = raw_cls >= 100
+            base_cls = torch.where(is_three_digit, raw_cls // 100, raw_cls // 10)
+            spec_cls = torch.where(is_three_digit, raw_cls % 100, raw_cls % 10)
+            base_cls = (base_cls - 1).clamp(min=0, max=self.nbc - 1)
+            valid_spec = spec_cls < self.nc
+            cdn_cls = torch.where(valid_spec, spec_cls, self.nc + base_cls)
+            cdn_batch = dict(batch)
+            cdn_batch["cls"] = cdn_cls.clamp(min=0, max=self.nc + self.nbc - 1)
+            cdn_class_embed = torch.cat([self.denoising_class_embed.weight, self.denoising_base_class_embed.weight])
+            cdn_num_classes = self.nc + self.nbc
+        # ###RTDETR##### end
         dn_embed, dn_bbox, attn_mask, dn_meta = get_cdn_group(
-            batch,
-            self.nc,
+            cdn_batch,
+            cdn_num_classes,
             self.num_queries,
-            self.denoising_class_embed.weight,
+            cdn_class_embed,
             self.num_denoising,
             self.label_noise_ratio,
             self.box_noise_scale,
             self.training,
         )
 
-        embed, refer_bbox, enc_bboxes, enc_scores = self._get_decoder_input(feats, shapes, dn_embed, dn_bbox)
+        decoder_input = self._get_decoder_input(
+            feats, shapes, dn_embed, dn_bbox
+        )
+        # ###RTDETR##### start
+        # 分层版多返回 encoder 大类分数；普通版保持原始 4 个返回值。
+        if self.hierarchical:
+            embed, refer_bbox, enc_bboxes, enc_scores, enc_base_scores = decoder_input
+        else:
+            embed, refer_bbox, enc_bboxes, enc_scores = decoder_input
+        # ###RTDETR##### end
 
         # Decoder
-        dec_bboxes, dec_scores = self.decoder(
+        decoder_output = self.decoder(
             embed,
             refer_bbox,
             feats,
@@ -1688,11 +1739,42 @@ class RTDETRDecoder(nn.Module):
             self.dec_score_head,
             self.query_pos_head,
             attn_mask=attn_mask,
+            # ###RTDETR##### start
+            # 只有分层头才把大类分类头传入 transformer decoder。
+            base_score_head=self.dec_base_score_head if self.hierarchical else None,
+            # ###RTDETR##### end
         )
+        # ###RTDETR##### start
+        # transformer decoder 在分层版会额外返回每层大类 logits。
+        if self.hierarchical:
+            dec_bboxes, dec_scores, dec_base_scores = decoder_output
+        else:
+            dec_bboxes, dec_scores = decoder_output
+        # ###RTDETR##### end
+        if self.training and dn_meta is not None:
+            # ###RTDETR##### start
+            # DDP 下确保分层 denoising embedding 被计算图触达。
+            if self.hierarchical:
+                dec_bboxes = dec_bboxes + 0 * self.denoising_base_class_embed.weight.sum()
+            # ###RTDETR##### end
         if self.training and dn_meta is None:
             # Touch denoising_class_embed so DDP sees it as used when batch has zero GTs.
-            dec_bboxes = dec_bboxes + 0 * self.denoising_class_embed.weight.sum()
-        x = dec_bboxes, dec_scores, enc_bboxes, enc_scores, dn_meta
+            # ###RTDETR##### start
+            # 空 GT batch 时也保持普通/分层 denoising embedding 都在计算图里。
+            if self.hierarchical:
+                dec_bboxes = dec_bboxes + 0 * (
+                    self.denoising_class_embed.weight.sum() + self.denoising_base_class_embed.weight.sum()
+                )
+            else:
+                dec_bboxes = dec_bboxes + 0 * self.denoising_class_embed.weight.sum()
+            # ###RTDETR##### end
+        # ###RTDETR##### start
+        # 训练阶段分层版返回 7 元组，普通版返回原始 5 元组，后续 loss 通过长度区分。
+        if self.hierarchical:
+            x = dec_bboxes, dec_scores, dec_base_scores, enc_bboxes, enc_scores, enc_base_scores, dn_meta
+        else:
+            x = dec_bboxes, dec_scores, enc_bboxes, enc_scores, dn_meta
+        # ###RTDETR##### end
         if self.training:
             return x
         # (bs, num_queries, 4), (bs, num_queries, nc)
@@ -1787,7 +1869,7 @@ class RTDETRDecoder(nn.Module):
         shapes: list[list[int]],
         dn_embed: torch.Tensor | None = None,
         dn_bbox: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate and prepare the input required for the decoder from the provided features and shapes.
 
         Args:
@@ -1810,10 +1892,22 @@ class RTDETRDecoder(nn.Module):
         # Prepare input for decoder
         features = self.enc_output(self.valid_mask * feats)  # bs, h*w, 256
         enc_outputs_scores = self.enc_score_head(features)  # (bs, h*w, nc)
+        # ###RTDETR##### start
+        # encoder 大类分数只在分层版计算，普通 RT-DETR 不创建该分支。
+        enc_outputs_base_scores = self.enc_base_score_head(features) if self.hierarchical else None  # (bs, h*w, nbc)
+        # ###RTDETR##### end
 
         # Query selection
         # (bs*num_queries,)
-        topk_ind = torch.topk(enc_outputs_scores.max(-1).values, self.num_queries, dim=1).indices.view(-1)
+        # ###RTDETR##### start
+        # 分层版用小类分数 + 0.3 * 大类分数选 query，普通版仍用原始小类分数。
+        if self.hierarchical:
+            # Let the auxiliary base branch help proposal selection without overpowering the final spec branch.
+            proposal_scores = enc_outputs_scores.sigmoid().max(-1).values + 0.3 * enc_outputs_base_scores.sigmoid().max(-1).values
+            topk_ind = torch.topk(proposal_scores, self.num_queries, dim=1).indices.view(-1)
+        else:
+            topk_ind = torch.topk(enc_outputs_scores.max(-1).values, self.num_queries, dim=1).indices.view(-1)
+        # ###RTDETR##### end
         # (bs*num_queries,)
         batch_ind = torch.arange(end=bs, dtype=topk_ind.dtype).unsqueeze(-1).repeat(1, self.num_queries).view(-1)
 
@@ -1829,6 +1923,11 @@ class RTDETRDecoder(nn.Module):
         if dn_bbox is not None:
             refer_bbox = torch.cat([dn_bbox, refer_bbox], 1)
         enc_scores = enc_outputs_scores[batch_ind, topk_ind].view(bs, self.num_queries, -1)
+        # ###RTDETR##### start
+        # 记录被选中 query 的 encoder 大类分数，后续作为 encoder 层 base_loss。
+        if self.hierarchical:
+            enc_base_scores = enc_outputs_base_scores[batch_ind, topk_ind].view(bs, self.num_queries, -1)
+        # ###RTDETR##### end
 
         embeddings = self.tgt_embed.weight.unsqueeze(0).repeat(bs, 1, 1) if self.learnt_init_query else top_k_features
         if self.training:
@@ -1838,15 +1937,30 @@ class RTDETRDecoder(nn.Module):
         if dn_embed is not None:
             embeddings = torch.cat([dn_embed, embeddings], 1)
 
+        # ###RTDETR##### start
+        # 分层版把 encoder 大类分数一起返回，普通版保持原始返回结构。
+        if self.hierarchical:
+            return embeddings, refer_bbox, enc_bboxes, enc_scores, enc_base_scores
         return embeddings, refer_bbox, enc_bboxes, enc_scores
+        # ###RTDETR##### end
 
     def _reset_parameters(self):
         """Initialize or reset the parameters of the model's various components with predefined weights and biases."""
         # Class and bbox head init
         bias_cls = bias_init_with_prob(0.01) / 80 * self.nc
+        # ###RTDETR##### start
+        # 大类分支使用和小类分支一致的分类 bias 初始化方式。
+        if self.hierarchical:
+            bias_base_cls = bias_init_with_prob(0.01) / 80 * self.nbc
+        # ###RTDETR##### end
         # NOTE: the weight initialization in `linear_init` would cause NaN when training with custom datasets.
         # linear_init(self.enc_score_head)
         constant_(self.enc_score_head.bias, bias_cls)
+        # ###RTDETR##### start
+        # 初始化 encoder 大类分类头。
+        if self.hierarchical:
+            constant_(self.enc_base_score_head.bias, bias_base_cls)
+        # ###RTDETR##### end
         constant_(self.enc_bbox_head.layers[-1].weight, 0.0)
         constant_(self.enc_bbox_head.layers[-1].bias, 0.0)
         for cls_, reg_ in zip(self.dec_score_head, self.dec_bbox_head):
@@ -1854,6 +1968,12 @@ class RTDETRDecoder(nn.Module):
             constant_(cls_.bias, bias_cls)
             constant_(reg_.layers[-1].weight, 0.0)
             constant_(reg_.layers[-1].bias, 0.0)
+        # ###RTDETR##### start
+        # 初始化 decoder 每层的大类分类头。
+        if self.hierarchical:
+            for base_cls_ in self.dec_base_score_head:
+                constant_(base_cls_.bias, bias_base_cls)
+        # ###RTDETR##### end
 
         linear_init(self.enc_output[0])
         xavier_uniform_(self.enc_output[0].weight)
@@ -1864,207 +1984,18 @@ class RTDETRDecoder(nn.Module):
         for layer in self.input_proj:
             xavier_uniform_(layer[0].weight)
 
-# !?注注?!
-# 上面是yolo的检测头修改
-class MyRTDETRDecoder(RTDETRDecoder):
-    export = False  # export mode
-    shapes = []
-    anchors = torch.empty(0)
-    valid_mask = torch.empty(0)
-    dynamic = False
 
-    def __init__(
-        self,
-        nc: int = 25,
-        ch: tuple = (512, 1024, 2048),
-        hd: int = 256,  # hidden dim
-        nq: int = 300,  # num queries
-        ndp: int = 4,  # num decoder points
-        nh: int = 8,  # num head
-        ndl: int = 6,  # num decoder layers
-        d_ffn: int = 1024,  # dim of feedforward
-        dropout: float = 0.0,
-        act: nn.Module = nn.ReLU(),
-        eval_idx: int = -1,
-        # Training args
-        nd: int = 100,  # num denoising
-        label_noise_ratio: float = 0.5,
-        box_noise_scale: float = 1.0,
-        learnt_init_query: bool = False,
-        nbc: int = 3
-    ):
-        super().__init__(
-            nc=nc, 
-            ch=ch, 
-            hd=hd, 
-            nq=nq, 
-            ndp=ndp, 
-            nh=nh, 
-            ndl=ndl, 
-            d_ffn=d_ffn, 
-            dropout=dropout, 
-            act=act, 
-            eval_idx=eval_idx, 
-            nd=nd, 
-            label_noise_ratio=label_noise_ratio, 
-            box_noise_scale=box_noise_scale, 
-            learnt_init_query=learnt_init_query
-        )
-        # 模型初始化解析有问题 
-        # 在task里面修 不会修
-        self.nbc = nbc
+# ###RTDETR##### start
+class HierRTDETRDecoder(RTDETRDecoder):
+    """RT-DETR decoder with hierarchical base/spec classification branches."""
 
-        # Backbone feature projection
-        self.input_proj = nn.ModuleList(nn.Sequential(nn.Conv2d(x, hd, 1, bias=False), nn.BatchNorm2d(hd)) for x in ch)
-        # NOTE: simplified version but it's not consistent with .pt weights.
-        # self.input_proj = nn.ModuleList(Conv(x, hd, act=False) for x in ch)
+    def __init__(self, nc: int = 80, ch: tuple = (512, 1024, 2048), nbc: int = 3, *args, **kwargs):
+        """Initialize a hierarchical RT-DETR decoder."""
+        # YAML 中使用这个类时自动打开 hierarchical，原始 RTDETRDecoder 不受影响。
+        super().__init__(nc=nc, ch=ch, *args, hierarchical=True, nbc=nbc, **kwargs)
 
-        # Transformer module
-        decoder_layer = DeformableTransformerDecoderLayer(hd, nh, d_ffn, dropout, act, self.nl, ndp)
-        self.decoder = MyDeformableTransformerDecoder(hd, decoder_layer, ndl, eval_idx)
 
-        # Denoising part
-        self.denoising_class_embed = nn.Embedding(nc, hd)
-        self.num_denoising = nd
-        self.label_noise_ratio = label_noise_ratio
-        self.box_noise_scale = box_noise_scale
-
-        # Decoder embedding
-        self.learnt_init_query = learnt_init_query
-        if learnt_init_query:
-            self.tgt_embed = nn.Embedding(nq, hd)
-        self.query_pos_head = MLP(4, 2 * hd, hd, num_layers=2)
-
-        # Encoder head
-        self.enc_output = nn.Sequential(nn.Linear(hd, hd), nn.LayerNorm(hd))
-        self.enc_score_head = nn.Linear(hd, nc)
-        self.enc_base_score_head = nn.Linear(hd, nbc)
-        self.enc_bbox_head = MLP(hd, hd, 4, num_layers=3)
-
-        # Decoder head
-        self.dec_score_head = nn.ModuleList([nn.Linear(hd, nc) for _ in range(ndl)])
-        self.dec_base_score_head = nn.ModuleList([nn.Linear(hd, nbc) for _ in range(ndl)])
-        self.dec_bbox_head = nn.ModuleList([MLP(hd, hd, 4, num_layers=3) for _ in range(ndl)])
-
-        self.my_reset_parameters()
-
-    def forward(self, x: list[torch.Tensor], batch: dict | None = None) -> tuple | torch.Tensor:
-        from ultralytics.models.utils.ops import get_cdn_group
-
-        # Input projection and embedding
-        feats, shapes = self._get_encoder_input(x)
-
-        # Prepare denoising training
-        dn_embed, dn_bbox, attn_mask, dn_meta = get_cdn_group(
-            batch,
-            self.nc,
-            self.num_queries,
-            self.denoising_class_embed.weight,
-            self.num_denoising,
-            self.label_noise_ratio,
-            self.box_noise_scale,
-            self.training,
-        )
-
-        embed, refer_bbox, enc_bboxes, enc_scores, enc_base_scores = self._get_decoder_input(feats, shapes, dn_embed, dn_bbox)
-
-        # Decoder
-        decoder_outputs = self.decoder(
-            embed,
-            refer_bbox,
-            feats,
-            shapes,
-            self.dec_bbox_head,
-            self.dec_score_head,
-            self.query_pos_head,
-            attn_mask=attn_mask,
-            base_score_head=self.dec_base_score_head,
-        )
-        if self.training and dn_meta is None:
-            # Touch denoising_class_embed so DDP sees it as used when batch has zero GTs.
-            dec_bboxes = dec_bboxes + 0 * self.denoising_class_embed.weight.sum()
-        if self.training:
-            # 如果是训练就解包出3个值
-            dec_bboxes, dec_scores, dec_base_scores = decoder_outputs
-            x = dec_bboxes, dec_scores, enc_bboxes, enc_scores, enc_base_scores, dec_base_scores, dn_meta
-            return x
-        else:
-            dec_bboxes, dec_scores = decoder_outputs
-            y = self.postprocess(dec_bboxes.squeeze(0), dec_scores.squeeze(0).sigmoid())
-            return y if self.export else (y, x)
-
-    def _get_decoder_input(
-        self,
-        feats: torch.Tensor,
-        shapes: list[list[int]],
-        dn_embed: torch.Tensor | None = None,
-        dn_bbox: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        bs = feats.shape[0]
-        if self.dynamic or self.shapes != shapes:
-            self.anchors, self.valid_mask = self._generate_anchors(shapes, dtype=feats.dtype, device=feats.device)
-            self.shapes = shapes
-
-        # Prepare input for decoder
-        features = self.enc_output(self.valid_mask * feats)  # bs, h*w, 256
-        enc_outputs_scores = self.enc_score_head(features)  # (bs, h*w, nc)
-        enc_outputs_base_scores = self.enc_base_score_head(features) # (bs, h*w, nbc)
-
-        # Query selection
-        # (bs*num_queries,)
-        topk_ind = torch.topk(enc_outputs_scores.max(-1).values, self.num_queries, dim=1).indices.view(-1)
-        # (bs*num_queries,)
-        batch_ind = torch.arange(end=bs, dtype=topk_ind.dtype).unsqueeze(-1).repeat(1, self.num_queries).view(-1)
-
-        # (bs, num_queries, 256)
-        top_k_features = features[batch_ind, topk_ind].view(bs, self.num_queries, -1)
-        # (bs, num_queries, 4)
-        top_k_anchors = self.anchors[:, topk_ind].view(bs, self.num_queries, -1)
-
-        # Dynamic anchors + static content
-        refer_bbox = self.enc_bbox_head(top_k_features) + top_k_anchors
-
-        enc_bboxes = refer_bbox.sigmoid()
-        if dn_bbox is not None:
-            refer_bbox = torch.cat([dn_bbox, refer_bbox], 1)
-        enc_scores = enc_outputs_scores[batch_ind, topk_ind].view(bs, self.num_queries, -1)
-        enc_base_scores = enc_outputs_base_scores[batch_ind, topk_ind].view(bs, self.num_queries, -1)
-
-        embeddings = self.tgt_embed.weight.unsqueeze(0).repeat(bs, 1, 1) if self.learnt_init_query else top_k_features
-        if self.training:
-            refer_bbox = refer_bbox.detach()
-            if not self.learnt_init_query:
-                embeddings = embeddings.detach()
-        if dn_embed is not None:
-            embeddings = torch.cat([dn_embed, embeddings], 1)
-
-        return embeddings, refer_bbox, enc_bboxes, enc_scores, enc_base_scores
-
-    def my_reset_parameters(self):
-        # Class and bbox head init
-        bias_cls = bias_init_with_prob(0.01) / 80 * self.nc
-        bias_base = bias_init_with_prob(0.01) / 80 * self.nbc
-        # NOTE: the weight initialization in `linear_init` would cause NaN when training with custom datasets.
-        # linear_init(self.enc_score_head)
-        constant_(self.enc_score_head.bias, bias_cls)
-        constant_(self.enc_base_score_head.bias, bias_base)
-        constant_(self.enc_bbox_head.layers[-1].weight, 0.0)
-        constant_(self.enc_bbox_head.layers[-1].bias, 0.0)
-        for cls_, reg_, bcls_ in zip(self.dec_score_head, self.dec_bbox_head, self.dec_base_score_head):
-            # linear_init(cls_)
-            constant_(cls_.bias, bias_cls)
-            constant_(reg_.layers[-1].weight, 0.0)
-            constant_(reg_.layers[-1].bias, 0.0)
-            constant_(bcls_.bias, bias_base) 
-
-        linear_init(self.enc_output[0])
-        xavier_uniform_(self.enc_output[0].weight)
-        if self.learnt_init_query:
-            xavier_uniform_(self.tgt_embed.weight)
-        xavier_uniform_(self.query_pos_head.layers[0].weight)
-        xavier_uniform_(self.query_pos_head.layers[1].weight)
-        for layer in self.input_proj:
-            xavier_uniform_(layer[0].weight)
+# ###RTDETR##### end
 
 class v10Detect(Detect):
     """v10 Detection head from https://arxiv.org/pdf/2405.14458.

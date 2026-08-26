@@ -85,5 +85,12 @@ class RTDETRTrainer(DetectionTrainer):
 
     def get_validator(self):
         """Return an RTDETRValidator suitable for RT-DETR model validation."""
-        self.loss_names = "giou_loss", "cls_loss", "l1_loss"
+        # ###RTDETR##### start
+        # 根据模型头决定训练日志显示 3 项普通 loss 还是 4 项分层 loss。
+        hierarchical = bool(getattr(self.model.model[-1], "hierarchical", False)) if hasattr(self.model, "model") else False
+        if hierarchical:
+            self.loss_names = "giou_loss", "cls_loss", "l1_loss", "base_loss"
+        else:
+            self.loss_names = "giou_loss", "cls_loss", "l1_loss"
+        # ###RTDETR##### end
         return RTDETRValidator(self.test_loader, save_dir=self.save_dir, args=copy(self.args))

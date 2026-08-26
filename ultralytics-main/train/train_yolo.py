@@ -14,9 +14,9 @@ from ultralytics.utils import DEFAULT_CFG
 # 如果单个 epoch 训练时间异常长可能是 batch_size 大了
 
 if __name__ == "__main__":
-    DEFAULT_CFG.save_dir = r"./runs/new_dataset/temp"
+    DEFAULT_CFG.save_dir = r"./runs/new_dataset/raw0"
 
-    model = YOLO(model=r"models/yolo_test.yaml")
+    model = YOLO(model=r"models/yolo_raw.yaml")
     # 注掉以下代码即可不加载预训练权重
     # ckpt = torch.load(r"models/yolov8n.pt", map_location="cpu", weights_only=False)
     # pretrained_state_dict = ckpt["model"].state_dict() if "model" in ckpt else ckpt

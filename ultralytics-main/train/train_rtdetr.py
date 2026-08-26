@@ -2,13 +2,13 @@ import torch
 from ultralytics import RTDETR
 from ultralytics.utils import DEFAULT_CFG
 
-import os
-os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+# import os
+# os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
 if __name__ == "__main__":
     DEFAULT_CFG.save_dir = r"./runs/new_dataset/rtdetr_test"
     
-    model = RTDETR(model=r"models/rtdetr-test.yaml")
+    model = RTDETR(model=r"models/rtdetr_raw.yaml")
     ckpt = torch.load(r"models/rtdetr-l.pt", map_location="cpu", weights_only=False)
     pretrained_state_dict = ckpt["model"].state_dict() if "model" in ckpt else ckpt
     model_state_dict = model.model.state_dict()
@@ -25,11 +25,14 @@ if __name__ == "__main__":
 
     model.train(
         data=r"./train/dataset.yaml",
-        epochs=2,
+        epochs=200,
         imgsz=960,
-        batch=4,
-        device='cpu',
+        batch=16,
+        device=0,
     )
 
-# !?注注?!
-# 这里只有训练的代码 验证的代码还没改 但是yolo的验证代码是改好的
+# 在代码中搜索 amp check 并将其设为 False
+
+# 更改 dataset.yaml 中的路径
+
+# 更改 batch 数量

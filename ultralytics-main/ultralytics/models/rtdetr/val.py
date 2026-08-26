@@ -120,6 +120,56 @@ class RTDETRValidator(DetectionValidator):
             data=self.data,
         )
 
+    # ###RTDETR##### start
+    # 验证阶段只在分层模型下解码混合标签，普通 RT-DETR 仍走原始验证流程。
+    def init_metrics(self, model: torch.nn.Module) -> None:
+        """Initialize metrics and enable hierarchical label decoding only for hierarchical RT-DETR heads."""
+        super().init_metrics(model)
+
+        self.hierarchical = True # bool(getattr(model.model[-1], "hierarchical", False)) if hasattr(model, "model") else False
+
+    @staticmethod
+    def split_hierarchical_class(raw_cls: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Decode mixed labels into base/spec labels for RT-DETR validation."""
+        raw_cls = raw_cls.long()
+        is_three_digit = raw_cls >= 100
+        base = torch.where(is_three_digit, raw_cls // 100, raw_cls // 10)
+        spec = torch.where(is_three_digit, raw_cls % 100, raw_cls % 10)
+        return base, spec
+
+    def _prepare_batch(self, si: int, batch: dict[str, Any]) -> dict[str, Any]:
+        """Decode validation labels to spec classes and drop missing-spec targets."""
+        if not getattr(self, "hierarchical", False):
+            return super()._prepare_batch(si, batch)
+
+        # 分层验证指标只评估最终输出的小类，因此把混合标签解码为小类并过滤缺失小类 25。
+        idx = batch["batch_idx"] == si
+        cls_raw = batch["cls"][idx].squeeze(-1)
+        bbox = batch["bboxes"][idx]
+        ori_shape = batch["ori_shape"][si]
+        imgsz = batch["img"].shape[2:]
+        ratio_pad = batch["ratio_pad"][si]
+
+        if cls_raw.shape[0]:
+            _, spec_cls = self.split_hierarchical_class(cls_raw)
+            valid_mask = (spec_cls >= 0) & (spec_cls < self.nc)
+            spec_cls = spec_cls[valid_mask]
+            bbox = bbox[valid_mask]
+            if spec_cls.shape[0]:
+                bbox = ops.xywh2xyxy(bbox) * torch.tensor(imgsz, device=self.device)[[1, 0, 1, 0]]
+        else:
+            spec_cls = cls_raw
+
+        return {
+            "cls": spec_cls,
+            "bboxes": bbox,
+            "ori_shape": ori_shape,
+            "imgsz": imgsz,
+            "ratio_pad": ratio_pad,
+            "im_file": batch["im_file"][si],
+        }
+    # ###RTDETR##### end
+
     def scale_preds(self, predn: dict[str, torch.Tensor], pbatch: dict[str, Any]) -> dict[str, torch.Tensor]:
         """Return predictions unchanged as RT-DETR handles scaling in postprocessing."""
         return predn

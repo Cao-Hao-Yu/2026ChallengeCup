@@ -713,6 +713,93 @@ class DeformableTransformerDecoderLayer(nn.Module):
         return self.forward_ffn(embed)
 
 
+# class DeformableTransformerDecoder(nn.Module):
+#     """Deformable Transformer Decoder based on PaddleDetection implementation.
+
+#     This class implements a complete deformable transformer decoder with multiple decoder layers and prediction heads
+#     for bounding box regression and classification.
+
+#     Attributes:
+#         layers (nn.ModuleList): List of decoder layers.
+#         num_layers (int): Number of decoder layers.
+#         hidden_dim (int): Hidden dimension.
+#         eval_idx (int): Index of the layer to use during evaluation.
+
+#     References:
+#         https://github.com/PaddlePaddle/PaddleDetection/blob/develop/ppdet/modeling/transformers/deformable_transformer.py
+#     """
+
+#     def __init__(self, hidden_dim: int, decoder_layer: nn.Module, num_layers: int, eval_idx: int = -1):
+#         """Initialize the DeformableTransformerDecoder with the given parameters.
+
+#         Args:
+#             hidden_dim (int): Hidden dimension.
+#             decoder_layer (nn.Module): Decoder layer module.
+#             num_layers (int): Number of decoder layers.
+#             eval_idx (int): Index of the layer to use during evaluation.
+#         """
+#         super().__init__()
+#         self.layers = _get_clones(decoder_layer, num_layers)
+#         self.num_layers = num_layers
+#         self.hidden_dim = hidden_dim
+#         self.eval_idx = eval_idx if eval_idx >= 0 else num_layers + eval_idx
+
+#     def forward(
+#         self,
+#         embed: torch.Tensor,  # decoder embeddings
+#         refer_bbox: torch.Tensor,  # anchor
+#         feats: torch.Tensor,  # image features
+#         shapes: list,  # feature shapes
+#         bbox_head: nn.Module,
+#         score_head: nn.Module,
+#         pos_mlp: nn.Module,
+#         attn_mask: torch.Tensor | None = None,
+#         padding_mask: torch.Tensor | None = None,
+#     ):
+#         """Perform the forward pass through the entire decoder.
+
+#         Args:
+#             embed (torch.Tensor): Decoder embeddings.
+#             refer_bbox (torch.Tensor): Reference bounding boxes.
+#             feats (torch.Tensor): Image features.
+#             shapes (list): Feature shapes.
+#             bbox_head (nn.Module): Bounding box prediction head.
+#             score_head (nn.Module): Score prediction head.
+#             pos_mlp (nn.Module): Position MLP.
+#             attn_mask (torch.Tensor, optional): Attention mask.
+#             padding_mask (torch.Tensor, optional): Padding mask.
+
+#         Returns:
+#             dec_bboxes (torch.Tensor): Decoded bounding boxes.
+#             dec_cls (torch.Tensor): Decoded classification scores.
+#         """
+#         output = embed
+#         dec_bboxes = []
+#         dec_cls = []
+#         last_refined_bbox = None
+#         refer_bbox = refer_bbox.sigmoid()
+#         for i, layer in enumerate(self.layers):
+#             output = layer(output, refer_bbox, feats, shapes, padding_mask, attn_mask, pos_mlp(refer_bbox))
+
+#             bbox = bbox_head[i](output)
+#             refined_bbox = torch.sigmoid(bbox + inverse_sigmoid(refer_bbox))
+
+#             if self.training:
+#                 dec_cls.append(score_head[i](output))
+#                 if i == 0:
+#                     dec_bboxes.append(refined_bbox)
+#                 else:
+#                     dec_bboxes.append(torch.sigmoid(bbox + inverse_sigmoid(last_refined_bbox)))
+#             elif i == self.eval_idx:
+#                 dec_cls.append(score_head[i](output))
+#                 dec_bboxes.append(refined_bbox)
+#                 break
+
+#             last_refined_bbox = refined_bbox
+#             refer_bbox = refined_bbox.detach() if self.training else refined_bbox
+
+#         return torch.stack(dec_bboxes), torch.stack(dec_cls)
+
 class DeformableTransformerDecoder(nn.Module):
     """Deformable Transformer Decoder based on PaddleDetection implementation.
 
@@ -755,6 +842,10 @@ class DeformableTransformerDecoder(nn.Module):
         pos_mlp: nn.Module,
         attn_mask: torch.Tensor | None = None,
         padding_mask: torch.Tensor | None = None,
+        # ###RTDETR##### start
+        # 可选的大类分类头；不传时 transformer decoder 完全保持原始 RT-DETR 行为。
+        base_score_head: nn.Module | None = None,
+        # ###RTDETR##### end
     ):
         """Perform the forward pass through the entire decoder.
 
@@ -776,6 +867,10 @@ class DeformableTransformerDecoder(nn.Module):
         output = embed
         dec_bboxes = []
         dec_cls = []
+        # ###RTDETR##### start
+        # 分层版收集每个 decoder layer 的大类 logits。
+        dec_base_cls = []
+        # ###RTDETR##### end
         last_refined_bbox = None
         refer_bbox = refer_bbox.sigmoid()
         for i, layer in enumerate(self.layers):
@@ -786,73 +881,31 @@ class DeformableTransformerDecoder(nn.Module):
 
             if self.training:
                 dec_cls.append(score_head[i](output))
+                # ###RTDETR##### start
+                # 训练时每层都输出大类分支，便于计算辅助 base_loss。
+                if base_score_head is not None:
+                    dec_base_cls.append(base_score_head[i](output))
+                # ###RTDETR##### end
                 if i == 0:
                     dec_bboxes.append(refined_bbox)
                 else:
                     dec_bboxes.append(torch.sigmoid(bbox + inverse_sigmoid(last_refined_bbox)))
             elif i == self.eval_idx:
                 dec_cls.append(score_head[i](output))
+                # ###RTDETR##### start
+                # 推理/验证时只输出 eval_idx 对应层的大类分支。
+                if base_score_head is not None:
+                    dec_base_cls.append(base_score_head[i](output))
+                # ###RTDETR##### end
                 dec_bboxes.append(refined_bbox)
                 break
 
             last_refined_bbox = refined_bbox
             refer_bbox = refined_bbox.detach() if self.training else refined_bbox
 
-        return torch.stack(dec_bboxes), torch.stack(dec_cls)
-
-# !?注注?!
-# 基本copy自上面那个
-class MyDeformableTransformerDecoder(nn.Module):
-    def __init__(self, hidden_dim: int, decoder_layer: nn.Module, num_layers: int, eval_idx: int = -1):
-        super().__init__()
-        self.layers = _get_clones(decoder_layer, num_layers)
-        self.num_layers = num_layers
-        self.hidden_dim = hidden_dim
-        self.eval_idx = eval_idx if eval_idx >= 0 else num_layers + eval_idx
-
-    def forward(
-        self,
-        embed: torch.Tensor,
-        refer_bbox: torch.Tensor,
-        feats: torch.Tensor,
-        shapes: list,
-        bbox_head: nn.Module,
-        score_head: nn.Module,
-        pos_mlp: nn.Module,
-        attn_mask: torch.Tensor | None = None,
-        padding_mask: torch.Tensor | None = None,
-        base_score_head: nn.Module | None = None,
-    ):
-        output = embed
-        dec_bboxes = []
-        dec_cls = []
-        dec_base_cls = []
-        last_refined_bbox = None
-        refer_bbox = refer_bbox.sigmoid()
-        
-        for i, layer in enumerate(self.layers):
-            output = layer(output, refer_bbox, feats, shapes, padding_mask, attn_mask, pos_mlp(refer_bbox))
-
-            bbox = bbox_head[i](output)
-            refined_bbox = torch.sigmoid(bbox + inverse_sigmoid(refer_bbox))
-
-            if self.training:
-                dec_cls.append(score_head[i](output))
-                dec_base_cls.append(base_score_head[i](output))
-                if i == 0:
-                    dec_bboxes.append(refined_bbox)
-                else:
-                    dec_bboxes.append(torch.sigmoid(bbox + inverse_sigmoid(last_refined_bbox)))  
-            elif i == self.eval_idx:
-                dec_cls.append(score_head[i](output))
-                dec_bboxes.append(refined_bbox)
-                break
-
-            last_refined_bbox = refined_bbox
-            refer_bbox = refined_bbox.detach() if self.training else refined_bbox
-
-        if self.training:
+        # ###RTDETR##### start
+        # 分层版额外返回大类 logits；普通版返回值不变。
+        if base_score_head is not None:
             return torch.stack(dec_bboxes), torch.stack(dec_cls), torch.stack(dec_base_cls)
-        else:
-            return torch.stack(dec_bboxes), torch.stack(dec_cls)
-
+        # ###RTDETR##### end
+        return torch.stack(dec_bboxes), torch.stack(dec_cls)
