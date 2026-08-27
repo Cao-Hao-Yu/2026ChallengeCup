@@ -263,7 +263,7 @@ class Detect(nn.Module):
         """Remove the one2many head for inference optimization."""
         self.cv2 = self.cv3 = None
 
-# !?注注?!
+# 注释
 # 担心改Detect基类会影响其他组件 于是新建了一个继承
 class MultiDetect(Detect):
     def __init__(self, nc: int = 25, nbc: int = 3, reg_max=16, end2end=False, ch: tuple = ()):
@@ -350,7 +350,7 @@ class MultiDetect(Detect):
                     5 / self.nbc / (640 / self.stride[i]) ** 2
                 )
 
-    # !?注注?!
+    # 注释
     # 这个函数应该不用改，因为这个貌似只有end2end会调用
     def postprocess(self, preds: torch.Tensor) -> torch.Tensor:
         # boxes, scores = preds.split([4, self.nc], dim=-1)

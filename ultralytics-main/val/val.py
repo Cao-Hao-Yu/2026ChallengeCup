@@ -1,9 +1,9 @@
 from ultralytics import YOLO
 
-MODEL_PATH = r"temp/raw5.pt"
+MODEL_PATH = r"temp/full.pt"
 DATA_YAML = r"./train/dataset.yaml"
 
-# !?注注?!
+# 注释
 # 改过 validator 会直接输出指标
 # 置信度阈值得调一个符合硬性指标的值
 CONF_THRES = 0.5

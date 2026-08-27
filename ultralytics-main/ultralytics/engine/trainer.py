@@ -332,10 +332,10 @@ class BaseTrainer:
 
         # Check AMP
         self.amp = torch.tensor(self.args.amp).to(self.device)  # True or False
-        # !?注注?!
+        # 注释
         # 改了 predictor 好像在运行 amp check 的时候会出问题 
         # 这里手动设置 训练 yolo 模型时 amp = true 训练 rtdetr 时 amp = false
-        self.amp = False
+        self.amp = True
         if self.amp and RANK in {-1, 0}:  # Single-GPU and DDP
             callbacks_backup = callbacks.default_callbacks.copy()  # backup callbacks as check_amp() resets them
             # self.amp = torch.tensor(check_amp(self.model), device=self.device)

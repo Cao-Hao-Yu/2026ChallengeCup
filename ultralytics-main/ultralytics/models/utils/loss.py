@@ -1,5 +1,5 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-# !?注注?!
+# 注释
 # 注释掉的是原版
 from __future__ import annotations
 

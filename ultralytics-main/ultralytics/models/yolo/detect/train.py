@@ -197,7 +197,7 @@ class DetectionTrainer(BaseTrainer):
 
     def get_validator(self):
         """Return a DetectionValidator for YOLO model validation."""
-        # !?注注?!
+        # 注释
         # 我加了一个 base loss
         self.loss_names = "box_loss", "cls_loss", "dfl_loss", "base_loss"
         return yolo.detect.DetectionValidator(

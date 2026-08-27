@@ -440,3 +440,26 @@ class YOLOE(Model):
         self.overrides["agnostic_nms"] = True  # use agnostic nms for YOLOE default
 
         return super().predict(source, stream, **kwargs)
+
+    # 注释
+    def predict_single(self, source, **kwargs):
+        """Custom single-image prediction entry."""
+        
+        # 确保 predictor 已初始化
+        if self.predictor is None:
+            predictor_cls = self.task_map[self.task]["predictor"]
+
+            self.predictor = predictor_cls(
+                overrides={
+                    **self.overrides,
+                    **kwargs,
+                    "task": self.task,
+                    "mode": "predict",
+                    "save": False,
+                    "verbose": False,
+                    "batch": 1,
+                },
+                _callbacks=self.callbacks,
+            )
+
+        return self.predictor.predict_single(source, model=self.model, **kwargs,)

@@ -86,7 +86,7 @@ from .head import (
     Pose,
     Pose26,
     RTDETRDecoder,
-    # !?注注?!
+    # 注释
     # 还有几处注册的地方 直接搜类名应该能搜到
     HierRTDETRDecoder,
     Segment,

@@ -1,4 +1,4 @@
-# !?注注?!
+# 注释
 # 已弃用
 import json
 import os

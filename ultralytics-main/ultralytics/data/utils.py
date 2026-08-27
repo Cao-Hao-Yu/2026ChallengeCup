@@ -274,7 +274,7 @@ def verify_image_label(args: tuple) -> list:
 
                 # All labels
                 # max_cls = 0 if single_cls else lb[:, 0].max()  # max label count
-                # !?注注?!
+                # 注释
                 # 我直接雷霆注释改掉 nc 断言
                 # assert max_cls < num_cls, (
                 #     f"Label class {int(max_cls)} exceeds dataset class count {num_cls}. "

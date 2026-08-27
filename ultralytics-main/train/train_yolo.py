@@ -5,7 +5,7 @@ from ultralytics.utils import DEFAULT_CFG
 # import os
 # os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
-# !?注注?!
+# 注释
 # 可能需要跑很久 batch epochs 可能需要调一调
 # 还有就是大类的损失系数 目前是 0.1 可能偏小 没有测试过其他值
 
@@ -14,9 +14,9 @@ from ultralytics.utils import DEFAULT_CFG
 # 如果单个 epoch 训练时间异常长可能是 batch_size 大了
 
 if __name__ == "__main__":
-    DEFAULT_CFG.save_dir = r"./runs/new_dataset/raw0"
+    DEFAULT_CFG.save_dir = r"./runs/new_dataset/full"
 
-    model = YOLO(model=r"models/yolo_raw.yaml")
+    model = YOLO(model=r"models/yolo_full.yaml")
     # 注掉以下代码即可不加载预训练权重
     # ckpt = torch.load(r"models/yolov8n.pt", map_location="cpu", weights_only=False)
     # pretrained_state_dict = ckpt["model"].state_dict() if "model" in ckpt else ckpt
@@ -36,6 +36,7 @@ if __name__ == "__main__":
         data=r"./train/dataset.yaml",
         epochs=200,
         imgsz=960,
-        batch=16,
-        device=0
+        batch=12,
+        device=0,
+        plots=False
     )

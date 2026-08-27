@@ -151,7 +151,7 @@ class BasePredictor:
         self.txt_path = None
         self._lock = threading.Lock()  # for automatic thread-safe inference
 
-        # !?注注?!
+        # 注释
         # 切片配置
         # 切片大小 重叠大小 切片分批大小（用来控制显存的）
         self.tile_size = 960
@@ -284,7 +284,7 @@ class BasePredictor:
                 nc=nc
             )
 
-            # !?注注?!
+            # 注释
             # 将 nms 后的结果移回 cpu 释放显存
             # 但这会导致大图占用比较多的cpu内存
             for pred in batch_preds:
@@ -507,6 +507,41 @@ class BasePredictor:
             print(f"COCO JSON results saved to {json_path}")   
 
         self.run_callbacks("on_predict_end")
+
+    # 注释
+    @smart_inference_mode()
+    def predict_single(self, source, model=None, *args, **kwargs):
+        if not self.model:
+            self.setup_model(model)
+
+        if self.imgsz is None:
+            self.imgsz = check_imgsz(self.args.imgsz, stride=self.model.stride, min_dim=2)
+
+        if not self.done_warmup:
+            self.model.warmup(imgsz=(1, self.model.channels, *self.imgsz))
+            self.done_warmup = True
+
+        if hasattr(source, "convert"):
+            source = source.convert("RGB")
+            orig_img = np.asarray(source)
+        elif isinstance(source, np.ndarray):
+            orig_img = source
+        else:
+            raise TypeError(f"predict_single 不支持输入类型: {type(source)}")
+
+        if orig_img.shape[-1] == 3:
+            orig_img = cv2.cvtColor(
+                orig_img,
+                cv2.COLOR_RGB2BGR
+            )
+
+        im0s = [orig_img]
+
+        im = self.preprocess(im0s)
+        preds = self.inference(im, *args, **kwargs)
+        results = self.postprocess(preds, im, im0s)
+
+        return results
 
     def setup_model(self, model, verbose: bool = True):
         """Initialize YOLO model with given parameters and set it to evaluation mode.

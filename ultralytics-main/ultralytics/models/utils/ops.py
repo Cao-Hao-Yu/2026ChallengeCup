@@ -236,7 +236,7 @@ def get_cdn_group(
     if max_nums == 0:
         return None, None, None, None
 
-    # !?注注?!
+    # 注释
     if training and batch is not None:
         # 这里解析标签是cdn需要 在cdn里面解析也一样
         # 原来是放在head里面调用的 在调用这个函数之前
@@ -319,7 +319,7 @@ def get_cdn_group(
         dn_meta,
     )
 
-# !?注注?!
+# 注释
 def _fix_labels(batch: dict):
     if batch is None or "cls" not in batch:
         return
@@ -340,7 +340,7 @@ def _fix_labels(batch: dict):
     valid_cls = spec
     mask_base1_missing = (spec == 25) & (base == 1)
     mask_other_missing = (spec == 25) & (base != 1)
-    # !?注注?!
+    # 注释
     # 这是 rtdetr 的坑
     # 牛大了 得处理一下 
     # 不行得删除所有无小类的飞机 无小类船勉强能留着

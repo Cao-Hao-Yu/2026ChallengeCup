@@ -332,7 +332,7 @@ class KeypointLoss(nn.Module):
         e = d / ((2 * self.sigmas).pow(2) * (area + 1e-9) * 2)  # from cocoeval
         return (kpt_loss_factor.view(-1, 1) * ((1 - torch.exp(-e)) * kpt_mask)).mean()
 
-# !?注注?!
+# 注释
 # 保留一份原有代码
 # class v8DetectionLoss:
 #     """Criterion class for computing training losses for YOLOv8 object detection."""
@@ -484,7 +484,7 @@ class KeypointLoss(nn.Module):
 #         loss, loss_detach = self.get_assigned_targets_and_loss(preds, batch)[1:]
 #         return loss * batch_size, loss_detach
 
-# !?注注?!
+# 注释
 class v8DetectionLoss:
     """Criterion class for computing training losses for YOLOv8 object detection."""
 
@@ -500,7 +500,7 @@ class v8DetectionLoss:
         self.hyp = h
         self.stride = m.stride  # model strides
         self.nc = m.nc  # number of classes
-        # !?注注?!
+        # 注释
         # 表示大类
         self.nbc = m.nbc    # number of base classes
         self.no = m.nc + m.reg_max * 4
@@ -514,7 +514,7 @@ class v8DetectionLoss:
         if self.class_weights is not None:
             self.class_weights = self.class_weights.to(device).view(1, 1, -1)
 
-        # !?注注?!
+        # 注释
         self.assigner = TaskAlignedAssigner(
             topk=tal_topk,
             num_classes=self.nbc,   # 使用大类分配给assigner 因为小类有缺失的情况
@@ -553,7 +553,7 @@ class v8DetectionLoss:
             # pred_dist = (pred_dist.view(b, a, c // 4, 4).softmax(2) * self.proj.type(pred_dist.dtype).view(1, 1, -1, 1)).sum(2)
         return dist2bbox(pred_dist, anchor_points, xywh=False)
 
-    # !?注注?!
+    # 注释
     # 注掉这个函数 直接在loss里面重写这个函数功能
     # def get_assigned_targets_and_loss(self, preds: dict[str, torch.Tensor], batch: dict[str, Any]) -> tuple:
     #     """Calculate the sum of the loss for box, cls and dfl multiplied by batch size and return foreground mask and
@@ -642,7 +642,7 @@ class v8DetectionLoss:
     #     loss, loss_detach = self.get_assigned_targets_and_loss(preds, batch)[1:]
     #     return loss * batch_size, loss_detach
 
-    # !?注注?!
+    # 注释
     # 这个loss顺手把get_assigned_targets_and_loss给集成了
     def loss(self, preds: dict[str, torch.Tensor], batch: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
         """Calculate detection loss."""
@@ -741,9 +741,9 @@ class v8DetectionLoss:
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.cls  # spec cls gain
         loss[2] *= self.hyp.dfl  # dfl gain
-        # !?注注?!
+        # 注释
         # 大类损失权重
-        loss[3] *= 0 # base cls gain
+        loss[3] *= 0.4 # base cls gain
 
         return loss.sum() * batch_size, loss.detach()
     

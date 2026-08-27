@@ -63,7 +63,7 @@ class DetectionValidator(BaseValidator):
         self.custom_fp = np.zeros(1)
         self.custom_gt = np.zeros(1)
 
-    # !?注注?!
+    # 注释
     def split_hierarchical_class(self, raw_cls):
         raw_cls = raw_cls.long()
         is_two_digit_spec = raw_cls >= 100
@@ -122,7 +122,7 @@ class DetectionValidator(BaseValidator):
         self.metrics.clear_image_metrics()
         self.confusion_matrix = ConfusionMatrix(names=model.names, save_matches=self.args.plots and self.args.visualize)
 
-        # !?注注?!
+        # 注释
         self.custom_tp = np.zeros(self.nc)
         self.custom_fp = np.zeros(self.nc)
         self.custom_gt = np.zeros(self.nc)
@@ -154,7 +154,7 @@ class DetectionValidator(BaseValidator):
         )
         return [{"bboxes": x[:, :4], "conf": x[:, 4], "cls": x[:, 5], "extra": x[:, 6:]} for x in outputs]
 
-    # !?注注?! 这是原有代码
+    # 注释 这是原有代码
     # def _prepare_batch(self, si: int, batch: dict[str, Any]) -> dict[str, Any]:
     #     """Prepare a batch of images and annotations for validation.
 
@@ -224,7 +224,7 @@ class DetectionValidator(BaseValidator):
             pred["cls"] *= 0
         return pred
 
-    # !?注注?!
+    # 注释
     # 指标计算多算了几个 用的官方api 我们就当官方的iou计算实现和比赛的实现相同
     def update_metrics(self, preds: list[dict[str, torch.Tensor]], batch: dict[str, Any]) -> None:
         """Update metrics with new predictions and ground truth.
@@ -377,7 +377,7 @@ class DetectionValidator(BaseValidator):
                     )
                 )
                 
-        # !?注注?!
+        # 注释
         if not self.training:
             LOGGER.info("")
             LOGGER.info("Attention => all metrics are calculate with iou threshold = 0.5")
